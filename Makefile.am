@@ -41,7 +41,7 @@ SUPERSONIC_LIB_LD_ADD = \
 
 SUPERSONIC_TESTS_FLAGS = $(COMPILER_FLAGS) $(TEST_FLAGS)
 SUPERSONIC_TESTS_LD_FLAGS = $(SUPERSONIC_LIB_LD_FLAGS)
-SUPERSONIC_TESTS_LD_ADD = $(SUPERSONIC_LIB_LD_ADD) libsupersonic_testutils.la libsupersonic_testutils_gunit.la libsupersonic_gmock.la libsupersonic_gmock_main.la
+SUPERSONIC_TESTS_LD_ADD = libsupersonic_testutils.la libsupersonic_testutils_gunit.la libsupersonic_gmock.la libsupersonic_gmock_main.la $(SUPERSONIC_LIB_LD_ADD)
 
 # Library
 lib_LTLIBRARIES = libsupersonic.la
@@ -302,6 +302,16 @@ test_expression_vector_SOURCES  = \
     supersonic/expression/vector/vector_logic_test.cc \
     supersonic/expression/vector/vector_primitives_test.cc
 TESTS += test_expression_vector
+
+# contrib/storage
+test_contrib_storage_core_CPPFLAGS = $(SUPERSONIC_TESTS_FLAGS)
+test_contrib_storage_core_LDFLAGS  = $(SUPERSONIC_TESTS_LD_FLAGS)
+test_contrib_storage_core_LDADD    = $(SUPERSONIC_TESTS_LD_ADD)
+test_contrib_storage_core_SOURCES  = \
+    supersonic/contrib/storage/core/page_builder_test.cc \
+    supersonic/contrib/storage/core/page_builder.cc \
+    supersonic/contrib/storage/core/page.cc
+TESTS += test_contrib_storage_core
 
 # Benchmark utilities
 lib_LTLIBRARIES += libsupersonic_benchmark.la
