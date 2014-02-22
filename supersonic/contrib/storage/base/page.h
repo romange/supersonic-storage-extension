@@ -13,8 +13,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef SUPERSONIC_CONTRIB_STORAGE_CORE_PAGE_H_
-#define SUPERSONIC_CONTRIB_STORAGE_CORE_PAGE_H_
+#ifndef SUPERSONIC_CONTRIB_STORAGE_BASE_PAGE_H_
+#define SUPERSONIC_CONTRIB_STORAGE_BASE_PAGE_H_
 
 #include <stdio.h>
 #include <vector>
@@ -75,4 +75,4 @@ FailureOrOwned<Page> CreatePage(std::unique_ptr<const Buffer> buffer);
 
 }  // namespace supersonic
 
-#endif  // SUPERSONIC_CONTRIB_STORAGE_CORE_PAGE_H_
+#endif  // SUPERSONIC_CONTRIB_STORAGE_BASE_PAGE_H_

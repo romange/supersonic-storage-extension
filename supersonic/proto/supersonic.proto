@@ -52,6 +52,7 @@ enum ReturnCode {
   ERROR_EVALUATION_ERROR              = 104;
   ERROR_BAD_PROTO                     = 105;
   ERROR_TEMP_FILE_CREATION_ERROR      = 106;
+  ERROR_INVALID_STATE                 = 107;
 
   ERROR_TOO_FEW_ROWS                  = 301;
   ERROR_TOO_MANY_ROWS                 = 302;

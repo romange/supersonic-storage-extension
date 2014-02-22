@@ -308,9 +308,11 @@ test_contrib_storage_core_CPPFLAGS = $(SUPERSONIC_TESTS_FLAGS)
 test_contrib_storage_core_LDFLAGS  = $(SUPERSONIC_TESTS_LD_FLAGS)
 test_contrib_storage_core_LDADD    = $(SUPERSONIC_TESTS_LD_ADD)
 test_contrib_storage_core_SOURCES  = \
+    supersonic/contrib/storage/base/page.cc \
     supersonic/contrib/storage/core/page_builder_test.cc \
+    supersonic/contrib/storage/core/file_storage_test.cc \
     supersonic/contrib/storage/core/page_builder.cc \
-    supersonic/contrib/storage/core/page.cc
+    supersonic/contrib/storage/util/path_util.cc
 TESTS += test_contrib_storage_core
 
 # Benchmark utilities
