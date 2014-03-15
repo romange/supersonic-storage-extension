@@ -127,3 +127,21 @@ message SerializedException {
 
   required common.StackTrace stack_trace  = 4;
 }
+
+enum CardinalityType {
+  REQUIRED          = 1;  // [1 .. 1]
+  OPTIONAL          = 2;  // [0 .. 1]
+};
+
+message SchemaProto {
+  repeated AttributeProto attribute = 1;
+}
+
+message AttributeProto {
+  required string name                 = 1;
+  required DataType type               = 2;
+
+  // Convenience shortcut, that can be used instead of providing specific
+  // {min_cardinality, max_cardinality} pair.
+  optional CardinalityType cardinality = 5;
+}
