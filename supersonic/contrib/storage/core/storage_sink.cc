@@ -80,7 +80,7 @@ class StorageSink : public Sink {
       // TODO(wzoltak): Handle incomplete writes?
       if (result.get() != row_count) {
         THROW(new Exception(ERROR_GENERAL_IO_ERROR,
-                            "Error while dumping data to page."));
+                            "Inconsistent write to PageSink."));
       }
     }
     return Success(row_count);
