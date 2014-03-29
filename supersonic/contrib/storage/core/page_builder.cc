@@ -25,7 +25,7 @@
 #include "supersonic/base/memory/arena.h"
 #include "supersonic/base/exception/result.h"
 #include "supersonic/base/exception/exception_macros.h"
-#include "supersonic/contrib/storage/core/page.h"
+#include "supersonic/contrib/storage/base/page.h"
 
 namespace supersonic {
 

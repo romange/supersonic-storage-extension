@@ -13,7 +13,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "supersonic/contrib/storage/core/page.h"
+#include "supersonic/contrib/storage/base/page.h"
 
 #include <google/protobuf/io/coded_stream.h>
 
