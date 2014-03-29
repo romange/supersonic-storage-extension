@@ -60,12 +60,21 @@ class FileStorageTest : public ::testing::Test {
     storage_ = std::unique_ptr<Storage>(storage.release());
   }
 
-  void CreateStreamWriter(const std::string& stream_name) {
+  void CreatePageStreamWriter(const std::string& stream_name) {
     FailureOrOwned<PageStreamWriter> stream_writer =
           storage_->CreatePageStream(stream_name);
     ASSERT_TRUE(stream_writer.is_success());
-    stream_writer_ = std::unique_ptr<PageStreamWriter>(stream_writer.release());
+    page_stream_writer_ = std::unique_ptr<PageStreamWriter>(
+        stream_writer.release());
   }
+
+  void CreateByteStreamWriter(const std::string& stream_name) {
+      FailureOrOwned<ByteStreamWriter> stream_writer =
+            storage_->CreateByteStream(stream_name);
+      ASSERT_TRUE(stream_writer.is_success());
+      byte_stream_writer_ = std::unique_ptr<ByteStreamWriter>(
+          stream_writer.release());
+    }
 
   void GetFileContents(char* buffer, const std::string& path) {
     File* file = File::OpenOrDie(path, "r");
@@ -77,7 +86,8 @@ class FileStorageTest : public ::testing::Test {
 
   std::string storage_path_;
   std::unique_ptr<Storage> storage_;
-  std::unique_ptr<PageStreamWriter> stream_writer_;
+  std::unique_ptr<PageStreamWriter> page_stream_writer_;
+  std::unique_ptr<ByteStreamWriter> byte_stream_writer_;
 };
 
 TEST_F(FileStorageTest, CreateFileStorageCreatesDirectory) {
@@ -87,38 +97,64 @@ TEST_F(FileStorageTest, CreateFileStorageCreatesDirectory) {
 }
 
 TEST_F(FileStorageTest, CreatingStreamCreatesFile) {
-  const std::string stream_name = "test_stream";
+  const std::string page_stream_name = "test_page_stream";
+  const std::string byte_stream_name = "test_byte_stream";
 
   CreateStorage(storage_path_);
-  CreateStreamWriter(stream_name);
-  ASSERT_TRUE(File::Exists(File::JoinPath(storage_path_, stream_name)));
-  stream_writer_->Finalize();
+
+  CreatePageStreamWriter(page_stream_name);
+  ASSERT_TRUE(File::Exists(File::JoinPath(storage_path_, page_stream_name)));
+  page_stream_writer_->Finalize();
+
+  CreateByteStreamWriter(byte_stream_name);
+  ASSERT_TRUE(File::Exists(File::JoinPath(storage_path_, byte_stream_name)));
+  byte_stream_writer_->Finalize();
 }
 
-TEST_F(FileStorageTest, WritingToStorageWritesToFile) {
+TEST_F(FileStorageTest, WritingToByteStreamWritesToFile) {
+  const std::string stream_name = "test_stream";
+  const char test_string[] = "test string";
+  std::unique_ptr<char> buffer(new char[128]);
+
+  CreateStorage(storage_path_);
+  CreateByteStreamWriter(stream_name);
+  ASSERT_TRUE(byte_stream_writer_->AppendBytes(
+      test_string, strlen(test_string)).is_success());
+  byte_stream_writer_->Finalize();
+
+  GetFileContents(buffer.get(), File::JoinPath(storage_path_, stream_name));
+  ASSERT_EQ(memcmp(buffer.get(), test_string, strlen(test_string)), 0);
+}
+
+TEST_F(FileStorageTest, WritingToPageStreamWritesToFile) {
   const std::string stream_name = "test_stream";
   std::unique_ptr<char> buffer(new char[128]);
 
   CreateStorage(storage_path_);
-  CreateStreamWriter(stream_name);
-  std::unique_ptr<const Page> page = CreateTestPage();
-  ASSERT_TRUE(stream_writer_->AppendPage(*page).is_success());
-  stream_writer_->Finalize();
+  CreatePageStreamWriter(stream_name);
+  std::unique_ptr<const Page> page(CreateTestPage());
+  ASSERT_TRUE(page_stream_writer_->AppendPage(*page).is_success());
+  page_stream_writer_->Finalize();
 
   GetFileContents(buffer.get(), File::JoinPath(storage_path_, stream_name));
   ASSERT_EQ(
-      memcmp(buffer.get(), page->RawData(), page->PageHeader().total_size),
-      0);
+      memcmp(buffer.get(), page->RawData(), page->PageHeader().total_size), 0);
 }
 
 TEST_F(FileStorageTest, WritingToFinalizedThrows) {
-  const std::string stream_name = "test_stream";
+  const std::string page_stream_name = "test_page_stream";
+  const std::string byte_stream_name = "test_byte_stream";
 
   CreateStorage(storage_path_);
-  CreateStreamWriter(stream_name);
-  stream_writer_->Finalize();
-  std::unique_ptr<const Page> page = CreateTestPage();
-  ASSERT_TRUE(stream_writer_->AppendPage(*page).is_failure());
+
+  CreatePageStreamWriter(page_stream_name);
+  page_stream_writer_->Finalize();
+  std::unique_ptr<const Page> page(CreateTestPage());
+  ASSERT_TRUE(page_stream_writer_->AppendPage(*page).is_failure());
+
+  CreateByteStreamWriter(byte_stream_name);
+  byte_stream_writer_->Finalize();
+  ASSERT_TRUE(byte_stream_writer_->AppendBytes(nullptr, 0).is_failure());
 }
 
 }  // namespace

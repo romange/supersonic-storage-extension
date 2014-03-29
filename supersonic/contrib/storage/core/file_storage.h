@@ -23,6 +23,8 @@
 
 #include "supersonic/base/exception/result.h"
 #include "supersonic/base/exception/exception_macros.h"
+#include "supersonic/contrib/storage/base/byte_stream_writer.h"
+#include "supersonic/contrib/storage/base/page_stream_writer.h"
 #include "supersonic/contrib/storage/base/storage.h"
 #include "supersonic/utils/file.h"
 #include "supersonic/utils/stringprintf.h"
@@ -41,54 +43,66 @@ class FileStorage : public Storage {
 
   virtual FailureOrOwned<PageStreamWriter> CreatePageStream(
       const std::string& name) {
-    if (streams_.find(name) != streams_.end()) {
+    FailureOrOwned<File> file = OpenFileForNewStream(name);
+    PROPAGATE_ON_FAILURE(file);
+    return Success(new FilePageStreamWriter(file.release()));
+  }
+
+  virtual FailureOrOwned<ByteStreamWriter> CreateByteStream(
+      const std::string& name) {
+    FailureOrOwned<File> file = OpenFileForNewStream(name);
+    PROPAGATE_ON_FAILURE(file);
+    return Success(new FileByteStreamWriter(file.release()));
+  }
+
+ private:
+  FailureOrOwned<File> OpenFileForNewStream(const std::string& stream_name) {
+    if (streams_.find(stream_name) != streams_.end()) {
       THROW(new Exception(
           ERROR_INVALID_ARGUMENT_VALUE,
-          StringPrintf("Stream %s already exists.", name.c_str())));
+          StringPrintf("Stream %s already exists.", stream_name.c_str())));
     }
 
-    const std::string stream_path = FileT::JoinPath(path_, name);
+    const std::string stream_path = FileT::JoinPath(path_, stream_name);
     File* file = FileT::OpenOrDie(stream_path, "w+");
     if (file == nullptr) {
       THROW(new Exception(ERROR_GENERAL_IO_ERROR, strerror(errno)));
     }
-    return Success(new FilePageStreamWriter(file));
+    return Success(file);
   }
 
- private:
   const std::string path_;
   std::set<std::string> streams_;
 
-  // Internal PageStreamWriter implementation for FileStorage.
-  class FilePageStreamWriter : public PageStreamWriter {
+
+  // Internal ByteStreamWriter implementation for FileStorage.
+  class FileByteStreamWriter : public ByteStreamWriter {
    public:
-    explicit FilePageStreamWriter(File* file) : file_(file), finalized_(false),
+    explicit FileByteStreamWriter(File* file) : file_(file), finalized_(false),
         stream_path_(file_->CreateFileName()) {}
 
-    ~FilePageStreamWriter() {
+    virtual ~FileByteStreamWriter() {
       if (!finalized_) {
-        LOG(DFATAL) << "Destroying not finalized FilePageStream.";
+        LOG(DFATAL) << "Destroying not finalized FileByteStream.";
         Finalize();
       }
     }
 
-    virtual FailureOrVoid AppendPage(const Page& page) {
+    virtual FailureOrVoid AppendBytes(const void* buffer, size_t length) {
       if (finalized_) {
         THROW(new Exception(
             ERROR_INVALID_STATE,
-            StringPrintf("Writing to finalized page stream under '%s'.",
+            StringPrintf("Writing to finalized stream under '%s'.",
                          stream_path_.c_str())));
       }
 
-      int64 written_bytes = file_->Write(page.RawData(),
-                                         page.PageHeader().total_size);
-      if (written_bytes != page.PageHeader().total_size) {
+    int64 written_bytes = file_->Write(buffer, length);
+      if (written_bytes != length) {
         THROW(new Exception(
             ERROR_GENERAL_IO_ERROR,
             StringPrintf("Incomplete write to stream under '%s'.",
                          stream_path_.c_str())));
       }
-
       return Success();
     }
 
@@ -104,9 +118,35 @@ class FileStorage : public Storage {
     }
 
    private:
+    std::unique_ptr<FileByteStreamWriter> byte_stream_;
     File* file_;
     bool finalized_;
     const std::string stream_path_;
+    DISALLOW_COPY_AND_ASSIGN(FileByteStreamWriter);
+  };
+
+  // Internal PageStreamWriter implementation for FileStorage.
+  class FilePageStreamWriter : public PageStreamWriter {
+   public:
+    explicit FilePageStreamWriter(File* file) : byte_stream_(file) {}
+
+    virtual ~FilePageStreamWriter() {}
+
+    virtual FailureOrVoid AppendPage(const Page& page) {
+      FailureOrVoid appended = byte_stream_.AppendBytes(page.RawData(),
+          page.PageHeader().total_size);
+      PROPAGATE_ON_FAILURE(appended);
+      return Success();
+    }
+
+    virtual FailureOrVoid Finalize() {
+      FailureOrVoid finalized = byte_stream_.Finalize();
+      PROPAGATE_ON_FAILURE(finalized);
+      return Success();
+    }
+
+   private:
+    FileByteStreamWriter byte_stream_;
     DISALLOW_COPY_AND_ASSIGN(FilePageStreamWriter);
   };
 
