@@ -322,6 +322,7 @@ test_contrib_storage_core_SOURCES  = \
     supersonic/contrib/storage/core/page_sink.cc \
     supersonic/contrib/storage/util/path_util.cc \
     supersonic/contrib/storage/base/column_writer.cc \
+    supersonic/contrib/storage/core/data_type_serializer.cc \
     supersonic/contrib/storage/util/schema_converter.cc
 TESTS += test_contrib_storage_core
 

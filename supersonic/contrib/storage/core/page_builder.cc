@@ -121,10 +121,21 @@ FailureOrVoid PageBuilder::AppendToByteBuffer(
     unsigned int byte_buffer_index,
     const void* data,
     size_t length) {
+  FailureOr<void*> buffer_result =
+      NextFromByteBuffer(byte_buffer_index, length);
+  PROPAGATE_ON_FAILURE(buffer_result);
+
+  memcpy(buffer_result.get(), data, length);
+  return Success();
+}
+
+FailureOr<void*> PageBuilder::NextFromByteBuffer(
+    unsigned int byte_buffer_index,
+    size_t length) {
   if (byte_buffer_index >= ByteBuffersCount()) {
-    THROW(new Exception(
-        ERROR_INVALID_ARGUMENT_VALUE,
-        "Byte buffer index out of bounds."));
+      THROW(new Exception(
+          ERROR_INVALID_ARGUMENT_VALUE,
+          "Byte buffer index out of bounds."));
   }
 
   void* storage = implementation_->arena_->AllocateBytes(length);
@@ -134,13 +145,12 @@ FailureOrVoid PageBuilder::AppendToByteBuffer(
         "Can't allocate memory for byte buffer chunk."));
   }
 
-  memcpy(storage, data, length);
   implementation_->byte_buffer_chunks_[byte_buffer_index].push_back(storage);
   implementation_->byte_buffer_chunks_lengths_[byte_buffer_index]
       .push_back(length);
   implementation_->page_size_ += length;
 
-  return Success();
+  return Success(storage);
 }
 
 FailureOrOwned<Page> PageBuilder::CreatePage() {

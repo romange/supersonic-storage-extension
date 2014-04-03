@@ -49,7 +49,7 @@ MATCHER_P(MatchingColumn, column, "") {
 
 class MockColumnWriter : public ColumnWriter {
  public:
-  MockColumnWriter(int uses_streams) : ColumnWriter(uses_streams) {}
+  explicit MockColumnWriter(int uses_streams) : ColumnWriter(uses_streams) {}
   MOCK_METHOD2(WriteColumn, FailureOrVoid(const Column&, rowcount_t));
 
   MockColumnWriter* ExpectingWriteColumn(const Column* column) {
@@ -217,23 +217,6 @@ TEST_F(PageSinkTest, IsUsingProjector) {
 
   ASSERT_TRUE(page_sink->Finalize().is_success());
 }
-
-// TODO(wzoltak): remove
-//TEST_F(PageSinkTest, Bbbb) {
-//  TupleSchema schema = CreateSchema();
-//  std::unique_ptr<Table> table = CreateTableWithData(schema);
-//
-//  FailureOrOwned<Storage> storage_result = CreateFileStorage<File, PathUtil>("my_storage");
-//  ASSERT_TRUE(storage_result.is_success());
-//  std::unique_ptr<Storage> storage(storage_result.release());
-//
-//  FailureOrOwned<Sink> sink = CreateStorageSink(schema, std::move(storage),
-//                                                HeapBufferAllocator::Get());
-//  ASSERT_TRUE(sink.is_success());
-//
-//  ASSERT_TRUE(sink->Write(table->view()).is_success());
-//  ASSERT_TRUE(sink->Finalize().is_success());
-//}
 
 }  // namespace
 }  // namespace supersonic

@@ -43,6 +43,12 @@ class PageBuilder {
                                    const void* data,
                                    size_t length);
 
+  // Appends `length` bytes into desired byte buffer and returns a pointer
+  // to that memory chunk. Initial contents of buffer are not specified, but
+  // one may use given pointer to overwrite contents in byte stream.
+  FailureOr<void*> NextFromByteBuffer(
+      unsigned int byte_buffer_index, size_t length);
+
   // Creates a Page containing accumulated data using newly allocated block.
   // Does not reset the builder.
   FailureOrOwned<Page> CreatePage();

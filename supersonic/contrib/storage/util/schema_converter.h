@@ -12,18 +12,6 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-//
-//
-// Classes for memory management, used by materializations
-// (arenas, segments, and STL collections parametrized via arena allocators)
-// so that memory usage can be controlled at the application level.
-//
-// Materializations can be parametrized by specifying an instance of a
-// BufferAllocator. The allocator implements
-// memory management policy (e.g. setting allocation limits). Allocators may
-// be shared between multiple materializations; e.g. you can designate a
-// single allocator per a single user request, thus setting bounds on memory
-// usage on a per-request basis.
 
 #ifndef SUPERSONIC_CONTRIB_STORAGE_UTIL_SCHEMA_CONVERTER_H_
 #define SUPERSONIC_CONTRIB_STORAGE_UTIL_SCHEMA_CONVERTER_H_
