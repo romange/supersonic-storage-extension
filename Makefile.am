@@ -310,14 +310,18 @@ test_contrib_storage_core_LDFLAGS  = $(SUPERSONIC_TESTS_LD_FLAGS)
 test_contrib_storage_core_LDADD    = $(SUPERSONIC_TESTS_LD_ADD)
 test_contrib_storage_core_SOURCES  = \
     supersonic/contrib/storage/base/page.cc \
-    supersonic/contrib/storage/core/page_builder_test.cc \
+    supersonic/contrib/storage/core/data_type_serializer_test.cc \
+    supersonic/contrib/storage/base/column_writer_test.cc \
     supersonic/contrib/storage/core/file_storage_test.cc \
+    supersonic/contrib/storage/core/page_builder_test.cc \
+    supersonic/contrib/storage/core/page_sink_test.cc \
     supersonic/contrib/storage/core/storage_sink_test.cc \
     supersonic/contrib/storage/util/schema_converter_test.cc \
     supersonic/contrib/storage/core/page_builder.cc \
     supersonic/contrib/storage/core/storage_sink.cc \
     supersonic/contrib/storage/core/page_sink.cc \
     supersonic/contrib/storage/util/path_util.cc \
+    supersonic/contrib/storage/base/column_writer.cc \
     supersonic/contrib/storage/util/schema_converter.cc
 TESTS += test_contrib_storage_core
 

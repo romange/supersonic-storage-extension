@@ -164,6 +164,10 @@ FailureOrOwned<Storage> CreateFileStorage(const std::string& path) {
           StringPrintf("Unable to create directory '%s' for FileStorage.",
                        path.c_str())));
     }
+  } else {
+    THROW(new Exception(
+        ERROR_GENERAL_IO_ERROR,
+        StringPrintf("Directory '%s' already exists.", path.c_str())));
   }
   return Success(new FileStorage<FileT>(path));
 }
