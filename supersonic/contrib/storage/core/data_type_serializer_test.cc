@@ -30,73 +30,76 @@
 namespace supersonic {
 namespace {
 
-template<typename T>
-void MapBuffer(const T* buffer,
-               const size_t lengths[],
-               const size_t arrays,
-               std::vector<VariantConstPointer>* mapped) {
-  size_t offset = 0;
-  for (size_t i = 0; i < arrays; i++) {
-    mapped->emplace_back(buffer + offset);
-    offset += lengths[i];
+class DataTypeSerializerTest : public ::testing::Test {
+ protected:
+  template<typename T>
+  void MapBuffer(const T* buffer,
+                 const size_t lengths[],
+                 const size_t arrays,
+                 std::vector<VariantConstPointer>* mapped) {
+    size_t offset = 0;
+    for (size_t i = 0; i < arrays; i++) {
+      mapped->emplace_back(buffer + offset);
+      offset += lengths[i];
+    }
+    return;
   }
-  return;
-}
 
-template<DataType T>
-void Serialize(const typename TypeTraits<T>::cpp_type buffer[],
-               const size_t lengths[],
-               const size_t arrays,
-               std::unique_ptr<Page>* page,
-               const void** data,
-               const struct ByteBufferHeader** byte_buffer_header) {
-  std::vector<VariantConstPointer> mapped_buffer;
-  MapBuffer(buffer, lengths, arrays, &mapped_buffer);
-  ASSERT_NE(mapped_buffer.size(), 0);
+  template<DataType T>
+  void Serialize(const typename TypeTraits<T>::cpp_type buffer[],
+                 const size_t lengths[],
+                 const size_t arrays,
+                 std::unique_ptr<Page>* page,
+                 const void** data,
+                 const struct ByteBufferHeader** byte_buffer_header) {
+    std::vector<VariantConstPointer> mapped_buffer;
+    MapBuffer(buffer, lengths, arrays, &mapped_buffer);
+    ASSERT_NE(mapped_buffer.size(), 0);
 
-  PageBuilder page_builder(1, HeapBufferAllocator::Get());
+    PageBuilder page_builder(1, HeapBufferAllocator::Get());
 
-  FailureOrOwned<Serializer> serializer_result =
-      CreateSerializer(T);
-  ASSERT_TRUE(serializer_result.is_success());
-  std::unique_ptr<Serializer> serializer(serializer_result.release());
+    FailureOrOwned<Serializer> serializer_result =
+        CreateSerializer(T);
+    ASSERT_TRUE(serializer_result.is_success());
+    std::unique_ptr<Serializer> serializer(serializer_result.release());
 
-  serializer->Serialize(&page_builder, 0, &mapped_buffer[0], lengths, arrays);
+    serializer->Serialize(&page_builder, 0, &mapped_buffer[0], lengths, arrays);
 
-  FailureOrOwned<Page> page_result = page_builder.CreatePage();
-  ASSERT_TRUE(page_result.is_success());
-  page->reset(page_result.release());
+    FailureOrOwned<Page> page_result = page_builder.CreatePage();
+    ASSERT_TRUE(page_result.is_success());
+    page->reset(page_result.release());
 
-  FailureOr<const void*> data_result = (*page)->ByteBuffer(0);
-  ASSERT_TRUE(data_result.is_success());
-  *data = data_result.get();
+    FailureOr<const void*> data_result = (*page)->ByteBuffer(0);
+    ASSERT_TRUE(data_result.is_success());
+    *data = data_result.get();
 
-  FailureOr<const struct ByteBufferHeader*> byte_buffer_header_result =
-      (*page)->ByteBufferHeader(0);
-  ASSERT_TRUE(byte_buffer_header_result.is_success());
-  *byte_buffer_header = byte_buffer_header_result.get();
-}
+    FailureOr<const struct ByteBufferHeader*> byte_buffer_header_result =
+        (*page)->ByteBufferHeader(0);
+    ASSERT_TRUE(byte_buffer_header_result.is_success());
+    *byte_buffer_header = byte_buffer_header_result.get();
+  }
 
-template<DataType T>
-void TestNumericTypeSerialization(
-    const typename TypeTraits<T>::cpp_type buffer[],
-    const size_t lengths[],
-    const size_t arrays) {
+  template<DataType T>
+  void TestNumericTypeSerialization(
+      const typename TypeTraits<T>::cpp_type buffer[],
+      const size_t lengths[],
+      const size_t arrays) {
+    Serialize<T>(buffer, lengths, arrays, &page, &data, &byte_buffer_header);
+
+    size_t type_size = sizeof(typename TypeTraits<T>::cpp_type);
+    size_t overall_length = std::accumulate(lengths, lengths + arrays, 0)
+      * type_size;
+    ASSERT_EQ(overall_length, byte_buffer_header->length);
+    ASSERT_EQ(0, memcmp(data, buffer, overall_length));
+  }
+
   std::unique_ptr<Page> page;
-  const void* data_result;
+  const void* data;
   const struct ByteBufferHeader* byte_buffer_header;
-  Serialize<T>(buffer, lengths, arrays, &page, &data_result,
-      &byte_buffer_header);
-
-  size_t type_size = sizeof(typename TypeTraits<T>::cpp_type);
-  size_t overall_length = std::accumulate(lengths, lengths + arrays, 0)
-    * type_size;
-  ASSERT_EQ(overall_length, byte_buffer_header->length);
-  ASSERT_EQ(0, memcmp(data_result, buffer, overall_length));
-}
+};
 
 
-TEST(DataTypeSerializerTest, TestNumericTypes) {
+TEST_F(DataTypeSerializerTest, TestNumericTypes) {
   // INT32
   const TypeTraits<INT32>::cpp_type ints[] = { 1, -2, 3, -4, 5 };
   const size_t ints_lengths[] = { 3 , 2 };
@@ -140,11 +143,7 @@ TEST(DataTypeSerializerTest, TestNumericTypes) {
   TestNumericTypeSerialization<DATETIME>(datetimes, datetimes_lengths, 2);
 }
 
-TEST(DataTypeSerializerTest, TestCppBooleans) {
-  std::unique_ptr<Page> page;
-  const void* data;
-  const struct ByteBufferHeader* byte_buffer_header;
-
+TEST_F(DataTypeSerializerTest, TestCppBooleans) {
   const TypeTraits<BOOL>::cpp_type bools[] = {
       true, true, true, false, true, false, true, false,    // 0b01010111
       true, false, true, true, false, true, false, true,    // 0b10101101
@@ -176,12 +175,7 @@ TEST(DataTypeSerializerTest, TestCppBooleans) {
   ASSERT_EQ(0, memcmp(&expected_empty, data, expected_empty_length));
 }
 
-TEST(DataTypeSerializerREst, TestVariableLength) {
-  // TODO(wzoltak): hide within class
-  std::unique_ptr<Page> page;
-  const void* data;
-  const struct ByteBufferHeader* byte_buffer_header;
-
+TEST_F(DataTypeSerializerTest, TestVariableLength) {
   TupleSchema schema;
   schema.add_attribute(Attribute("A", BINARY, NULLABLE));
   schema.add_attribute(Attribute("B", STRING, NULLABLE));
