@@ -38,8 +38,11 @@ class ColumnWriter {
   int uses_streams() { return uses_streams_; }
 
  protected:
-  ColumnWriter(int uses_streams) : uses_streams_(uses_streams) {};
+  explicit ColumnWriter(int uses_streams) : uses_streams_(uses_streams) {}
   int uses_streams_;
+
+ private:
+  DISALLOW_COPY_AND_ASSIGN(ColumnWriter);
 };
 
 // Creates a ColumnWriter writing Column objects into given PageBuilder,
@@ -49,6 +52,6 @@ FailureOrOwned<ColumnWriter> CreateColumnWriter(
     std::shared_ptr<PageBuilder> page_builder,
     int first_byte_buffer);
 
-}  // namespace
+}  // namespace supersonic
 
 #endif  // SUPERSONIC_CONTRIB_STORAGE_BASE_COLUMN_WRITER_H_

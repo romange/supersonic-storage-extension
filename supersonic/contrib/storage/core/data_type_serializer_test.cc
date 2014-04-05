@@ -16,6 +16,8 @@
 #include "supersonic/contrib/storage/core/data_type_serializer.h"
 
 #include <numeric>
+#include <string>
+#include <vector>
 
 #include "gtest/gtest.h"
 
@@ -32,10 +34,10 @@ template<typename T>
 void MapBuffer(const T* buffer,
                const size_t lengths[],
                const size_t arrays,
-               std::vector<VariantConstPointer>& mapped) {
+               std::vector<VariantConstPointer>* mapped) {
   size_t offset = 0;
   for (size_t i = 0; i < arrays; i++) {
-    mapped.emplace_back(buffer + offset);
+    mapped->emplace_back(buffer + offset);
     offset += lengths[i];
   }
   return;
@@ -49,7 +51,7 @@ void Serialize(const typename TypeTraits<T>::cpp_type buffer[],
                const void** data,
                const struct ByteBufferHeader** byte_buffer_header) {
   std::vector<VariantConstPointer> mapped_buffer;
-  MapBuffer(buffer, lengths, arrays, mapped_buffer);
+  MapBuffer(buffer, lengths, arrays, &mapped_buffer);
   ASSERT_NE(mapped_buffer.size(), 0);
 
   PageBuilder page_builder(1, HeapBufferAllocator::Get());
@@ -144,11 +146,11 @@ TEST(DataTypeSerializerTest, TestCppBooleans) {
   const struct ByteBufferHeader* byte_buffer_header;
 
   const TypeTraits<BOOL>::cpp_type bools[] = {
-      true, true, true, false, true, false, true, false,   // 0b01010111
-      true, false, true, true, false, true, false, true,   // 0b10101101
-      false, false, true, false, true, false, false, true, // 0b10010100
-      true, true, true, false, true, true, false, true,    // 0b10110111
-      true, false, true, false, true, false, true, true   // 0b11010101
+      true, true, true, false, true, false, true, false,    // 0b01010111
+      true, false, true, true, false, true, false, true,    // 0b10101101
+      false, false, true, false, true, false, false, true,  // 0b10010100
+      true, true, true, false, true, true, false, true,     // 0b10110111
+      true, false, true, false, true, false, true, true     // 0b11010101
     };
 
   const size_t bools_lengths[] = { 35, 5 };
@@ -158,6 +160,7 @@ TEST(DataTypeSerializerTest, TestCppBooleans) {
       35, 0b10110111100101001010110101010111,
       0b00000000000000000000000000000101, 5, 0b00000000000000000000000000011010
     };
+
   size_t expected_length = 5 * sizeof(uint32_t);
   ASSERT_EQ(expected_length, byte_buffer_header->length);
   ASSERT_EQ(0, memcmp(&expected, data, expected_length));
@@ -204,10 +207,10 @@ TEST(DataTypeSerializerREst, TestVariableLength) {
       &byte_buffer_header);
 
   char expected_binary[] = {
-      0x02, 0x00, 0x00, 0x00, // two string pieces
+      0x02, 0x00, 0x00, 0x00,  // two string pieces
       0x04, 0x00, 0x00, 0x00, 'a', '\0', 'b', '\0',
       0x06, 0x00, 0x00, 0x00, '0', 'x', '1', '2', '3', '4',
-      0x01, 0x00, 0x00, 0x00, // one string piece
+      0x01, 0x00, 0x00, 0x00,  // one string piece
       0x00, 0x00, 0x00, 0x00
      };
   size_t expected_binary_length = 30;
@@ -222,10 +225,10 @@ TEST(DataTypeSerializerREst, TestVariableLength) {
         &byte_buffer_header);
 
   char expected_string[] = {
-      0x02, 0x00, 0x00, 0x00, // two string pieces
+      0x02, 0x00, 0x00, 0x00,  // two string pieces
       0x05, 0x00, 0x00, 0x00, 'a', 'b', 'c', 'd', 'e',
       0x00, 0x00, 0x00, 0x00,
-      0x01, 0x00, 0x00, 0x00, // one string piece
+      0x01, 0x00, 0x00, 0x00,  // one string piece
       0x08, 0x00, 0x00, 0x00, 'H', 'e', 'y', ' ', 'J', 'o', 'e', '!'
   };
   size_t expected_string_length = 33;

@@ -28,7 +28,7 @@ namespace supersonic {
 class Serializer {
  public:
   Serializer() {};
-  virtual ~Serializer() {};
+  virtual ~Serializer() {}
 
   // Serializes given data, writing output into `output_buffer`. The support
   // for array in Supersonic is planned. Because of that this function
