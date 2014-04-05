@@ -46,35 +46,73 @@ class FileStorageTest : public ::testing::Test {
     }
   }
 
-  std::unique_ptr<const Page> CreateTestPage() {
-    PageBuilder page_builder(0, HeapBufferAllocator::Get());
+  void AssertEqualPages(const Page& a, const Page& b) {
+    ASSERT_EQ(a.PageHeader().total_size, b.PageHeader().total_size);
+    ASSERT_EQ(0, memcmp(a.RawData(), b.RawData(), a.PageHeader().total_size));
+  }
+
+  void CreateTestFile(const std::string& name,
+                      const void* contents,
+                      uint64_t size) {
+    File* file = File::OpenOrDie(File::JoinPath(storage_path_, name), "w+");
+    ASSERT_NE(nullptr, file);
+    if (size > 0) {
+      int64_t written = file->Write(contents, size);
+      ASSERT_EQ(size, written);
+    }
+    ASSERT_TRUE(file->Close());
+  }
+
+  void CreateTestPage(std::unique_ptr<const Page>* page) {
+    static const char data[] =
+        "Lorem ipsum dolor sit amet, consectetur adipisicing elit, sed do";
+    PageBuilder page_builder(3, HeapBufferAllocator::Get());
+    ASSERT_TRUE(page_builder.AppendToByteBuffer(0, data, 20).is_success());
+    ASSERT_TRUE(page_builder.AppendToByteBuffer(1, data + 5, 17).is_success());
+    ASSERT_TRUE(page_builder.AppendToByteBuffer(2, data + 9, 6).is_success());
+
     FailureOrOwned<Page> page_result = page_builder.CreatePage();
-    page_result.mark_checked();
-    return std::unique_ptr<const Page>(page_result.release());
+    ASSERT_TRUE(page_result.is_success());
+    page->reset(page_result.release());
   }
 
   void CreateStorage(const std::string& path) {
     FailureOrOwned<Storage> storage =
-        CreateFileStorage<File, PathUtil>(storage_path_);
+        CreateFileStorage<File, PathUtil>(storage_path_,
+                                          HeapBufferAllocator::Get());
     ASSERT_TRUE(storage.is_success());
     storage_ = std::unique_ptr<Storage>(storage.release());
   }
 
   void CreatePageStreamWriter(const std::string& stream_name) {
     FailureOrOwned<PageStreamWriter> stream_writer =
-          storage_->CreatePageStream(stream_name);
+          storage_->CreatePageStreamWriter(stream_name);
     ASSERT_TRUE(stream_writer.is_success());
-    page_stream_writer_ = std::unique_ptr<PageStreamWriter>(
-        stream_writer.release());
+    page_stream_writer_.reset(stream_writer.release());
+  }
+
+  void CreatePageStreamReader(const std::string& stream_name) {
+    FailureOrOwned<PageStreamReader> stream_reader =
+        storage_->CreatePageStreamReader(stream_name);
+    ASSERT_TRUE(stream_reader.is_success());
+    page_stream_reader_.reset(stream_reader.release());
   }
 
   void CreateByteStreamWriter(const std::string& stream_name) {
-      FailureOrOwned<ByteStreamWriter> stream_writer =
-            storage_->CreateByteStream(stream_name);
-      ASSERT_TRUE(stream_writer.is_success());
-      byte_stream_writer_ = std::unique_ptr<ByteStreamWriter>(
-          stream_writer.release());
-    }
+    FailureOrOwned<ByteStreamWriter> stream_writer =
+          storage_->CreateByteStreamWriter(stream_name);
+    ASSERT_TRUE(stream_writer.is_success());
+    byte_stream_writer_ = std::unique_ptr<ByteStreamWriter>(
+        stream_writer.release());
+  }
+
+  void CreateByteStreamReader(const std::string& stream_name) {
+    FailureOrOwned<ByteStreamReader> stream_reader =
+          storage_->CreateByteStreamReader(stream_name);
+    ASSERT_TRUE(stream_reader.is_success());
+    byte_stream_reader_ = std::unique_ptr<ByteStreamReader>(
+        stream_reader.release());
+  }
 
   void GetFileContents(char* buffer, const std::string& path) {
     File* file = File::OpenOrDie(path, "r");
@@ -87,8 +125,23 @@ class FileStorageTest : public ::testing::Test {
   std::string storage_path_;
   std::unique_ptr<Storage> storage_;
   std::unique_ptr<PageStreamWriter> page_stream_writer_;
+  std::unique_ptr<PageStreamReader> page_stream_reader_;
   std::unique_ptr<ByteStreamWriter> byte_stream_writer_;
+  std::unique_ptr<ByteStreamReader> byte_stream_reader_;
+
+  static const std::string page_stream_name;
+  static const std::string page_stream_reader_name;
+  static const std::string byte_stream_name;
+  static const std::string byte_stream_reader_name;
 };
+
+const std::string FileStorageTest::page_stream_name = "test_page_stream";
+const std::string FileStorageTest::byte_stream_name = "test_byte_stream";
+const std::string FileStorageTest::page_stream_reader_name =
+    "test_page_stream_reader";
+const std::string FileStorageTest::byte_stream_reader_name =
+    "test_byte_stream_reader";
+
 
 TEST_F(FileStorageTest, CreateFileStorageCreatesDirectory) {
   ASSERT_FALSE(PathUtil::ExistsDir(storage_path_));
@@ -97,9 +150,6 @@ TEST_F(FileStorageTest, CreateFileStorageCreatesDirectory) {
 }
 
 TEST_F(FileStorageTest, CreatingStreamCreatesFile) {
-  const std::string page_stream_name = "test_page_stream";
-  const std::string byte_stream_name = "test_byte_stream";
-
   CreateStorage(storage_path_);
 
   CreatePageStreamWriter(page_stream_name);
@@ -132,7 +182,8 @@ TEST_F(FileStorageTest, WritingToPageStreamWritesToFile) {
 
   CreateStorage(storage_path_);
   CreatePageStreamWriter(stream_name);
-  std::unique_ptr<const Page> page(CreateTestPage());
+  std::unique_ptr<const Page> page;
+  CreateTestPage(&page);
   ASSERT_TRUE(page_stream_writer_->AppendPage(*page).is_success());
   page_stream_writer_->Finalize();
 
@@ -142,20 +193,80 @@ TEST_F(FileStorageTest, WritingToPageStreamWritesToFile) {
 }
 
 TEST_F(FileStorageTest, WritingToFinalizedThrows) {
-  const std::string page_stream_name = "test_page_stream";
-  const std::string byte_stream_name = "test_byte_stream";
-
   CreateStorage(storage_path_);
 
   CreatePageStreamWriter(page_stream_name);
   page_stream_writer_->Finalize();
-  std::unique_ptr<const Page> page(CreateTestPage());
+  std::unique_ptr<const Page> page;
+  CreateTestPage(&page);
   ASSERT_TRUE(page_stream_writer_->AppendPage(*page).is_failure());
 
   CreateByteStreamWriter(byte_stream_name);
   byte_stream_writer_->Finalize();
   ASSERT_TRUE(byte_stream_writer_->AppendBytes(nullptr, 0).is_failure());
 }
+
+TEST_F(FileStorageTest, ReadingFromFinalizedThrows) {
+  CreateStorage(storage_path_);
+  CreateTestFile(byte_stream_reader_name, nullptr, 0);
+
+  CreateByteStreamReader(byte_stream_reader_name);
+  byte_stream_reader_->Finalize();
+  ASSERT_TRUE(byte_stream_reader_->ReadBytes(nullptr, 0).is_failure());
+
+  CreateTestFile(page_stream_reader_name, nullptr, 0);
+  CreatePageStreamReader(page_stream_reader_name);
+  page_stream_reader_->Finalize();
+  ASSERT_TRUE(page_stream_reader_->NextPage().is_failure());
+}
+
+TEST_F(FileStorageTest, ReadingFromByteStream) {
+  const char expected[] = "bacon ipsum";
+  char actual[32];
+  int64_t length = strlen(expected);
+
+  CreateStorage(storage_path_);
+  CreateTestFile(byte_stream_reader_name, expected, length);
+  CreateByteStreamReader(byte_stream_reader_name);
+
+  FailureOr<int64_t> read_result =
+      byte_stream_reader_->ReadBytes(actual, length);
+  ASSERT_TRUE(read_result.is_success());
+  ASSERT_EQ(length, read_result.get());
+  ASSERT_EQ(0, memcmp(expected, actual, length));
+
+  ASSERT_TRUE(byte_stream_reader_->Finalize().is_success());
+}
+
+TEST_F(FileStorageTest, ReadingFromPageStream) {
+  std::unique_ptr<const Page> page;
+  CreateTestPage(&page);
+
+  uint64_t page_size = page->PageHeader().total_size;
+  std::unique_ptr<char> data(new char[page_size * 2]);
+  memcpy(data.get(), page->RawData(), page_size);
+  memcpy(data.get() + page_size, page->RawData(), page_size);
+
+  CreateStorage(storage_path_);
+  CreateTestFile(page_stream_reader_name,
+                 data.get(),
+                 page_size * 2);
+  CreatePageStreamReader(page_stream_reader_name);
+
+  for (int i = 0; i < 2; i++) {
+    FailureOr<const Page*> read_page_result = page_stream_reader_->NextPage();
+    ASSERT_TRUE(read_page_result.is_success());
+    AssertEqualPages(*read_page_result.get(), *page);
+  }
+
+  FailureOr<const Page*> empty_page_result = page_stream_reader_->NextPage();
+  ASSERT_TRUE(empty_page_result.is_success());
+  ASSERT_EQ(0, empty_page_result.get()->PageHeader().byte_buffers_count);
+
+  ASSERT_TRUE(page_stream_reader_->Finalize().is_success());
+}
+
+
 
 }  // namespace
 }  // namespace supersonic

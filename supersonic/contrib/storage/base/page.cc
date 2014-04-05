@@ -29,18 +29,20 @@ namespace supersonic {
 typedef std::vector<struct ByteBufferHeader> ByteBufferHeaderVector;
 typedef std::vector<const void*> ByteBufferVector;
 
-class PageImplementation : public Page {
+
+// Represents a Page which does not own the data buffer.
+class PageView : public Page {
  public:
-  PageImplementation(
-      std::unique_ptr<const Buffer> buffer,
+  PageView(
+      const Buffer& buffer,
       std::unique_ptr<struct PageHeader> page_header,
       std::unique_ptr<ByteBufferHeaderVector> byte_buffers_headers,
       std::unique_ptr<ByteBufferVector> byte_buffers)
-          : buffer_(std::move(buffer)), page_header_(std::move(page_header)),
+          : buffer_(buffer), page_header_(std::move(page_header)),
               byte_buffers_headers_(std::move(byte_buffers_headers)),
               byte_buffers_(std::move(byte_buffers)) {}
 
-  virtual ~PageImplementation() {}
+  virtual ~PageView() {}
 
   const struct PageHeader& PageHeader() const {
     return *page_header_;
@@ -64,14 +66,36 @@ class PageImplementation : public Page {
   }
 
   const void* RawData() const {
-    return buffer_->data();
+    return buffer_.data();
   }
 
  private:
-  std::unique_ptr<const Buffer> buffer_;
+  const Buffer& buffer_;
   std::unique_ptr<struct PageHeader> page_header_;
   std::unique_ptr<ByteBufferHeaderVector> byte_buffers_headers_;
   std::unique_ptr<ByteBufferVector> byte_buffers_;
+
+  DISALLOW_COPY_AND_ASSIGN(PageView);
+};
+
+// Represents a Page which does own the raw data.
+class PageImplementation : public PageView {
+ public:
+  PageImplementation(
+      std::unique_ptr<const Buffer> buffer,
+      std::unique_ptr<struct PageHeader> page_header,
+      std::unique_ptr<ByteBufferHeaderVector> byte_buffers_headers,
+      std::unique_ptr<ByteBufferVector> byte_buffers)
+          : PageView(*buffer.get(), std::move(page_header),
+              std::move(byte_buffers_headers),
+              std::move(byte_buffers)),
+            owned_buffer_(std::move(buffer)) {
+  }
+
+  virtual ~PageImplementation() {}
+
+ private:
+  std::unique_ptr<const Buffer> owned_buffer_;
 
   DISALLOW_COPY_AND_ASSIGN(PageImplementation);
 };
@@ -79,6 +103,7 @@ class PageImplementation : public Page {
 
 namespace {
 
+// Deserializes page header from raw data.
 FailureOrVoid DeserializePageHeader(
     const uint8_t* page_data,
     const std::unique_ptr<struct PageHeader>& page_header) {
@@ -97,6 +122,7 @@ FailureOrVoid DeserializePageHeader(
   return Success();
 }
 
+// Deserializes byte buffer header from raw data.
 FailureOrVoid DeserializeByteBufferHeader(
     const uint8_t* data,
     const std::unique_ptr<ByteBufferHeaderVector>& byte_buffers_headers) {
@@ -135,15 +161,14 @@ FailureOrVoid DeserializeByteBuffers(
   return Success();
 }
 
-}  // namespace
-
-
-FailureOrOwned<Page> CreatePage(std::unique_ptr<const Buffer> buffer) {
+// Helper function for Page creation. Use with caution.
+template<typename PageClass, typename Buffer>
+FailureOrOwned<Page> CreatePageImplementation(Buffer buffer,
+                                              uint8_t* raw_data) {
   std::unique_ptr<struct PageHeader> page_header(new PageHeader());
   std::unique_ptr<ByteBufferHeaderVector> byte_buffers_headers(
       new ByteBufferHeaderVector());
   std::unique_ptr<ByteBufferVector> byte_buffers(new ByteBufferVector());
-  const uint8_t* raw_data = static_cast<const uint8_t*>(buffer->data());
 
   FailureOrVoid deserialized_page_header =
       DeserializePageHeader(raw_data, page_header);
@@ -153,11 +178,26 @@ FailureOrOwned<Page> CreatePage(std::unique_ptr<const Buffer> buffer) {
       raw_data, page_header, byte_buffers_headers, byte_buffers);
   PROPAGATE_ON_FAILURE(deserialized_byte_buffers);
 
+  // Move `buffer` in case it is a std::unique_ptr.
+  return Success(new PageClass(std::move(buffer),
+                               std::move(page_header),
+                               std::move(byte_buffers_headers),
+                               std::move(byte_buffers)));
+}
 
-  return Success(new PageImplementation(std::move(buffer),
-                                        std::move(page_header),
-                                        std::move(byte_buffers_headers),
-                                        std::move(byte_buffers)));
+}  // namespace
+
+
+FailureOrOwned<Page> CreatePage(std::unique_ptr<const Buffer> buffer) {
+  uint8_t* raw_data = static_cast<uint8_t*>(buffer->data());
+  return CreatePageImplementation<PageImplementation,
+                                  std::unique_ptr<const Buffer> >
+      (std::move(buffer), raw_data);
+}
+
+FailureOrOwned<Page> CreatePageView(const Buffer& buffer) {
+  uint8_t* raw_data = static_cast<uint8_t*>(buffer.data());
+  return CreatePageImplementation<PageView, const Buffer&>(buffer, raw_data);
 }
 
 }  // namespace supersonic
