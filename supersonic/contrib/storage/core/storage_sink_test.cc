@@ -66,10 +66,14 @@ class MockPageSink : public Sink {
 
 class MockStorage : public Storage {
  public:
-  MOCK_METHOD1(CreatePageStream,
+  MOCK_METHOD1(CreatePageStreamWriter,
                FailureOrOwned<PageStreamWriter>(const std::string& name));
-  MOCK_METHOD1(CreateByteStream,
+  MOCK_METHOD1(CreatePageStreamReader,
+                 FailureOrOwned<PageStreamReader>(const std::string& name));
+  MOCK_METHOD1(CreateByteStreamWriter,
                FailureOrOwned<ByteStreamWriter>(const std::string& name));
+  MOCK_METHOD1(CreateByteStreamReader,
+                 FailureOrOwned<ByteStreamReader>(const std::string& name));
 };
 
 class MockByteStreamWriter : public ByteStreamWriter {
@@ -120,7 +124,7 @@ TEST_F(StorageSinkTest, WritesMetadata) {
       EqualsBuffer(serialized_schema.c_str(), serialized_schema.length()),
       serialized_schema.length()))
           .WillOnce(::testing::Return(Success()));
-  EXPECT_CALL(*storage, CreateByteStream(::testing::_))
+  EXPECT_CALL(*storage, CreateByteStreamWriter(::testing::_))
             .WillOnce(::testing::Return(Success(byte_stream.release())));
 
   ASSERT_TRUE(DumpSchema(tuple_schema, storage.get(),

@@ -19,7 +19,9 @@
 #include <string>
 
 #include "supersonic/base/exception/result.h"
+#include "supersonic/contrib/storage/base/byte_stream_reader.h"
 #include "supersonic/contrib/storage/base/byte_stream_writer.h"
+#include "supersonic/contrib/storage/base/page_stream_reader.h"
 #include "supersonic/contrib/storage/base/page_stream_writer.h"
 
 namespace supersonic {
@@ -29,10 +31,16 @@ class Storage {
  public:
   virtual ~Storage() {}
 
-  virtual FailureOrOwned<PageStreamWriter> CreatePageStream(
+  virtual FailureOrOwned<PageStreamWriter> CreatePageStreamWriter(
       const std::string& name) = 0;
 
-  virtual FailureOrOwned<ByteStreamWriter> CreateByteStream(
+  virtual FailureOrOwned<ByteStreamWriter> CreateByteStreamWriter(
+      const std::string& name) = 0;
+
+  virtual FailureOrOwned<PageStreamReader> CreatePageStreamReader(
+      const std::string& name) = 0;
+
+  virtual FailureOrOwned<ByteStreamReader> CreateByteStreamReader(
       const std::string& name) = 0;
 };
 

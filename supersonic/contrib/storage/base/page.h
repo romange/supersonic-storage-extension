@@ -73,6 +73,10 @@ class Page {
 // the buffer.
 FailureOrOwned<Page> CreatePage(std::unique_ptr<const Buffer> buffer);
 
+// Creates Page object as a temporary view on buffer containing raw data. Does
+// not take ownership over the buffer.
+FailureOrOwned<Page> CreatePageView(const Buffer& buffer);
+
 }  // namespace supersonic
 
 #endif  // SUPERSONIC_CONTRIB_STORAGE_BASE_PAGE_H_

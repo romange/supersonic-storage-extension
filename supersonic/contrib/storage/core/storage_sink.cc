@@ -116,7 +116,7 @@ FailureOrVoid DumpSchema(
     Storage* storage,
     BufferAllocator* buffer_allocator) {
   FailureOrOwned<ByteStreamWriter> schema_stream_result =
-      storage->CreateByteStream(kSchemaStreamName);
+      storage->CreateByteStreamWriter(kSchemaStreamName);
   PROPAGATE_ON_FAILURE(schema_stream_result);
   std::unique_ptr<ByteStreamWriter>
       schema_stream(schema_stream_result.release());
@@ -158,7 +158,7 @@ FailureOrOwned<Sink> CreateStorageSink(
         bound_projector(bound_projector_result.release());
 
     FailureOrOwned<PageStreamWriter> page_stream_result =
-        storage->CreatePageStream(StorageSink::StreamName(attribute));
+        storage->CreatePageStreamWriter(StorageSink::StreamName(attribute));
     PROPAGATE_ON_FAILURE(page_stream_result);
     std::unique_ptr<PageStreamWriter> page_stream(page_stream_result.release());
 
