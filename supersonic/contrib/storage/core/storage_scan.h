@@ -13,28 +13,24 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef SUPERSONIC_CONTRIB_STORAGE_BASE_PAGE_STREAM_WRITER_H_
-#define SUPERSONIC_CONTRIB_STORAGE_BASE_PAGE_STREAM_WRITER_H_
+#ifndef SUPERSONIC_CONTRIB_STORAGE_CORE_STORAGE_SCAN_H_
+#define SUPERSONIC_CONTRIB_STORAGE_CORE_STORAGE_SCAN_H_
 
-#include "supersonic/contrib/storage/base/page.h"
+#include <memory>
+
 #include "supersonic/base/exception/result.h"
+#include "supersonic/base/memory/memory.h"
+#include "supersonic/cursor/base/operation.h"
+#include "supersonic/contrib/storage/base/storage.h"
 
 namespace supersonic {
 
-// Interface for writing to page stream.
-class PageStreamWriter {
- public:
-  virtual ~PageStreamWriter() {}
+// Creates a Cursor which reads data from given storage. Takes ownership over
+// storage.
+FailureOrOwned<Cursor> StorageScan(std::unique_ptr<ReadableStorage> storage,
+                                   BufferAllocator* allocator);
 
-  // Appends given page to the underlying page stream.
-  virtual FailureOrVoid AppendPage(const Page& page) = 0;
-
-  // Finalizes the PageStreamWriter. After the writer is finalized it can not
-  // be used for writing anymore. Finalize must be always called before the
-  // object is destroyed.
-  virtual FailureOrVoid Finalize() = 0;
-};
 
 }  // namespace supersonic
 
-#endif  // SUPERSONIC_CONTRIB_STORAGE_BASE_PAGE_STREAM_WRITER_H_
+#endif  // SUPERSONIC_CONTRIB_STORAGE_CORE_STORAGE_SCAN_H_

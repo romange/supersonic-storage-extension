@@ -26,7 +26,7 @@ namespace supersonic {
 class SchemaConverter {
  public:
   // Converts a SchemaProto object into a TupleSchema object.
-  static FailureOrOwned<TupleSchema> SchemaProtoToTupleSchema(
+  static FailureOr<TupleSchema> SchemaProtoToTupleSchema(
       const SchemaProto& schema_proto);
 
   // Converts a TupleSchema object into a SchemaProto object.

@@ -45,19 +45,19 @@ void FillAttributeProto(AttributeProto* attribute_proto,
 }  // namespace
 
 
-FailureOrOwned<TupleSchema> SchemaConverter::SchemaProtoToTupleSchema(
+FailureOr<TupleSchema> SchemaConverter::SchemaProtoToTupleSchema(
     const SchemaProto& schema_proto) {
-  std::unique_ptr<TupleSchema> tuple_schema(new TupleSchema());
+  TupleSchema tuple_schema;
   for (int i = 0; i < schema_proto.attribute_size(); i++) {
     const AttributeProto& attribute_proto = schema_proto.attribute(i);
-    if (!tuple_schema->add_attribute(
+    if (!tuple_schema.add_attribute(
         AttributeFromAttributeProto(attribute_proto))) {
       THROW(new Exception(
           ERROR_GENERAL_IO_ERROR,
           StringPrintf("Unable to add attribute into TupleSchema proto.")));
     }
   }
-  return Success(tuple_schema.release());
+  return Success(tuple_schema);
 }
 
 

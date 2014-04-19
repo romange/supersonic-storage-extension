@@ -20,12 +20,18 @@
 
 namespace supersonic {
 
+// Interface for writing to byte stream.
 class ByteStreamWriter {
  public:
   virtual ~ByteStreamWriter() {}
 
+  // Appends `length` bytes from given buffer at the end of the underlying byte
+  // stream.
   virtual FailureOrVoid AppendBytes(const void* buffer, size_t length) = 0;
 
+  // Finalizes the ByteStreamWriter. After the writer is finalized it can not
+  // be used for writing anymore. Finalize must be always called before the
+  // object is destroyed.
   virtual FailureOrVoid Finalize() = 0;
 };
 

@@ -63,10 +63,10 @@ TEST(SchemaConverter, SchemaProtoToTupleSchema) {
   FillAttribute(schema_proto.add_attribute(), "A", DataType::INT64, OPTIONAL);
   FillAttribute(schema_proto.add_attribute(), "B", DataType::BOOL, REQUIRED);
 
-  FailureOrOwned<TupleSchema> tuple_schema =
+  FailureOr<TupleSchema> tuple_schema_result =
       SchemaConverter::SchemaProtoToTupleSchema(schema_proto);
-  ASSERT_TRUE(tuple_schema.is_success());
-  AssertEqualSchemas(*tuple_schema, schema_proto);
+  ASSERT_TRUE(tuple_schema_result.is_success());
+  AssertEqualSchemas(tuple_schema_result.get(), schema_proto);
 }
 
 }  // namespace

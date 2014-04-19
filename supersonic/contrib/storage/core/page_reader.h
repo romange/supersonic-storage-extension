@@ -13,28 +13,24 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef SUPERSONIC_CONTRIB_STORAGE_BASE_PAGE_STREAM_WRITER_H_
-#define SUPERSONIC_CONTRIB_STORAGE_BASE_PAGE_STREAM_WRITER_H_
+#ifndef SUPERSONIC_CONTRIB_STORAGE_CORE_PAGE_READER_H_
+#define SUPERSONIC_CONTRIB_STORAGE_CORE_PAGE_READER_H_
 
-#include "supersonic/contrib/storage/base/page.h"
+#include <memory>
+
 #include "supersonic/base/exception/result.h"
+#include "supersonic/contrib/storage/base/page_stream_reader.h"
+#include "supersonic/cursor/base/cursor.h"
 
 namespace supersonic {
 
-// Interface for writing to page stream.
-class PageStreamWriter {
- public:
-  virtual ~PageStreamWriter() {}
-
-  // Appends given page to the underlying page stream.
-  virtual FailureOrVoid AppendPage(const Page& page) = 0;
-
-  // Finalizes the PageStreamWriter. After the writer is finalized it can not
-  // be used for writing anymore. Finalize must be always called before the
-  // object is destroyed.
-  virtual FailureOrVoid Finalize() = 0;
-};
+// Creates a Cursor which reads data described by `schema` from given page
+// stream. Takes ownership over page stream.
+FailureOrOwned<Cursor> PageReader(
+    TupleSchema schema,
+    std::unique_ptr<PageStreamReader> page_stream,
+    BufferAllocator* allocator);
 
 }  // namespace supersonic
 
-#endif  // SUPERSONIC_CONTRIB_STORAGE_BASE_PAGE_STREAM_WRITER_H_
+#endif  // SUPERSONIC_CONTRIB_STORAGE_CORE_PAGE_READER_H_

@@ -13,38 +13,33 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef SUPERSONIC_CONTRIB_STORAGE_CORE_DATA_TYPE_SERIALIZER_H_
-#define SUPERSONIC_CONTRIB_STORAGE_CORE_DATA_TYPE_SERIALIZER_H_
+#ifndef SUPERSONIC_CONTRIB_STORAGE_BASE_DESERIALIZER_H_
+#define SUPERSONIC_CONTRIB_STORAGE_BASE_DESERIALIZER_H_
 
-#include <stddef.h>
-#include <endian.h>
+#include <utility>
 
-#include "supersonic/base/exception/result.h"
-#include "supersonic/base/infrastructure/bit_pointers.h"
-#include "supersonic/base/infrastructure/types.h"
 #include "supersonic/base/infrastructure/variant_pointer.h"
-#include "supersonic/contrib/storage/base/serializer.h"
 #include "supersonic/contrib/storage/core/page_builder.h"
 #include "supersonic/utils/exception/failureor.h"
 #include "supersonic/utils/macros.h"
-#include "supersonic/proto/supersonic.pb.h"
-
-
-// TODO(wzoltak): Fix in future. Either ignore BigEndian or serialize
-//                to bitmask by hand.
-#ifndef IS_LITTLE_ENDIAN
-#error "The storage serialization code supports little endian only"
-#endif
-
-#if USE_BITS_FOR_IS_NULL_REPRESENTATION == true
-#error "The storage serialization code supports boolean nulls only"
-#endif
 
 namespace supersonic {
 
-// Creates a Serializer for given DataType.
-FailureOrOwned<Serializer> CreateSerializer(DataType type);
+// Base class for deserializers, which are reading data from byte buffers.
+class Deserializer {
+ public:
+  Deserializer() {}
+  virtual ~Deserializer() {}
+
+  // Deserializes data from given byte buffer. Returns a pointer to buffer
+  // containing deserialized data and row count.
+  virtual FailureOr<pair<VariantConstPointer, rowcount_t> >
+      Deserialize(const void* byte_buffer,
+                  const ByteBufferHeader& byte_buffer_header) = 0;
+ private:
+  DISALLOW_COPY_AND_ASSIGN(Deserializer);
+};
 
 }  // namespace supersonic
 
-#endif  // SUPERSONIC_CONTRIB_STORAGE_CORE_DATA_TYPE_SERIALIZER_H_
+#endif  // SUPERSONIC_CONTRIB_STORAGE_BASE_DESERIALIZER_H_

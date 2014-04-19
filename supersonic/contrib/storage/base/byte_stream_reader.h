@@ -20,13 +20,19 @@
 
 namespace supersonic {
 
-// Interface for byte stream reading.
+// Interface for reading from byte stream.
 class ByteStreamReader {
  public:
   virtual ~ByteStreamReader() {}
 
+  // Read max `size` bytes into buffer. Returns number of read bytes, 0 on
+  // EOF. The only case in which returned number is lower than `size` is when
+  // read data ends the file.
   virtual FailureOr<int64_t> ReadBytes(void* buffer, int64_t size) = 0;
 
+  // Finalizes the ByteStreamReader. After the reader is finalized it can not
+  // be used for reading anymore. Finalize must be always called before the
+  // object is destroyed.
   virtual FailureOrVoid Finalize() = 0;
 };
 

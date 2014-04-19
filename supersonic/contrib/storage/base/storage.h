@@ -12,6 +12,10 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
+//
+// Contains basic interfaces for persistent storage. The storage is a stream,
+// which can be either writable or readable, but not both at once.
+// The storage provides access to named streams via reader / writer objects.
 
 #ifndef SUPERSONIC_CONTRIB_STORAGE_BASE_STORAGE_H_
 #define SUPERSONIC_CONTRIB_STORAGE_BASE_STORAGE_H_
@@ -26,20 +30,30 @@
 
 namespace supersonic {
 
-// Base interface for persistent storage.
-class Storage {
+// Base interface for writable persistent storage.
+class WritableStorage {
  public:
-  virtual ~Storage() {}
+  virtual ~WritableStorage() {}
 
+  // Creates a PageStreamWriter with a given name.
   virtual FailureOrOwned<PageStreamWriter> CreatePageStreamWriter(
       const std::string& name) = 0;
 
+  // Creates a ByteStreamWriter with a given name.
   virtual FailureOrOwned<ByteStreamWriter> CreateByteStreamWriter(
       const std::string& name) = 0;
+};
 
+// Base interface for readable persistent storage.
+class ReadableStorage {
+ public:
+  virtual ~ReadableStorage() {}
+
+  // Creates a PageStreamReader for a given name.
   virtual FailureOrOwned<PageStreamReader> CreatePageStreamReader(
       const std::string& name) = 0;
 
+  // Creates a ByteStreamReader for a given name.
   virtual FailureOrOwned<ByteStreamReader> CreateByteStreamReader(
       const std::string& name) = 0;
 };

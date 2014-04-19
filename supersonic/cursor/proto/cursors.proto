@@ -17,6 +17,8 @@ enum CursorId {
   REPEATING_BLOCK = 5;
   SELECTION_VECTOR_VIEW = 6;
   VIEW = 7;
+  STORAGE_SCAN = 43;
+  POSITIONAL_JOIN = 44;
 
   // Cursors that perform some data-processing computation on the output of
   // other cursors.

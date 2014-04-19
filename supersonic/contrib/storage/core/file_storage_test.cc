@@ -30,6 +30,7 @@
 namespace supersonic {
 namespace {
 
+
 class FileStorageTest : public ::testing::Test {
  protected:
   void SetUp() {
@@ -76,31 +77,43 @@ class FileStorageTest : public ::testing::Test {
     page->reset(page_result.release());
   }
 
-  void CreateStorage(const std::string& path) {
-    FailureOrOwned<Storage> storage =
-        CreateFileStorage<File, PathUtil>(storage_path_,
-                                          HeapBufferAllocator::Get());
+  void CreateWritableStorage(const std::string& path) {
+    FailureOrOwned<WritableStorage> storage =
+        CreateWritableFileStorage<File, PathUtil>(storage_path_,
+                                                  HeapBufferAllocator::Get());
     ASSERT_TRUE(storage.is_success());
-    storage_ = std::unique_ptr<Storage>(storage.release());
+    writable_storage_ = std::unique_ptr<WritableStorage>(storage.release());
+  }
+
+  void CreateReadableStorage(const std::string& path) {
+    PathUtil::MkDir(path, S_IRWXU, true /* with parents */);
+    FailureOrOwned<ReadableStorage> storage =
+        CreateReadableFileStorage<File, PathUtil>(storage_path_,
+                                                  HeapBufferAllocator::Get());
+    if (storage.is_failure()) {
+      printf("%s\n", storage.exception().ToString().c_str());
+    }
+    ASSERT_TRUE(storage.is_success());
+    readable_storage_ = std::unique_ptr<ReadableStorage>(storage.release());
   }
 
   void CreatePageStreamWriter(const std::string& stream_name) {
     FailureOrOwned<PageStreamWriter> stream_writer =
-          storage_->CreatePageStreamWriter(stream_name);
+          writable_storage_->CreatePageStreamWriter(stream_name);
     ASSERT_TRUE(stream_writer.is_success());
     page_stream_writer_.reset(stream_writer.release());
   }
 
   void CreatePageStreamReader(const std::string& stream_name) {
     FailureOrOwned<PageStreamReader> stream_reader =
-        storage_->CreatePageStreamReader(stream_name);
+        readable_storage_->CreatePageStreamReader(stream_name);
     ASSERT_TRUE(stream_reader.is_success());
     page_stream_reader_.reset(stream_reader.release());
   }
 
   void CreateByteStreamWriter(const std::string& stream_name) {
     FailureOrOwned<ByteStreamWriter> stream_writer =
-          storage_->CreateByteStreamWriter(stream_name);
+          writable_storage_->CreateByteStreamWriter(stream_name);
     ASSERT_TRUE(stream_writer.is_success());
     byte_stream_writer_ = std::unique_ptr<ByteStreamWriter>(
         stream_writer.release());
@@ -108,7 +121,7 @@ class FileStorageTest : public ::testing::Test {
 
   void CreateByteStreamReader(const std::string& stream_name) {
     FailureOrOwned<ByteStreamReader> stream_reader =
-          storage_->CreateByteStreamReader(stream_name);
+        readable_storage_->CreateByteStreamReader(stream_name);
     ASSERT_TRUE(stream_reader.is_success());
     byte_stream_reader_ = std::unique_ptr<ByteStreamReader>(
         stream_reader.release());
@@ -123,7 +136,8 @@ class FileStorageTest : public ::testing::Test {
   }
 
   std::string storage_path_;
-  std::unique_ptr<Storage> storage_;
+  std::unique_ptr<WritableStorage> writable_storage_;
+  std::unique_ptr<ReadableStorage> readable_storage_;
   std::unique_ptr<PageStreamWriter> page_stream_writer_;
   std::unique_ptr<PageStreamReader> page_stream_reader_;
   std::unique_ptr<ByteStreamWriter> byte_stream_writer_;
@@ -143,14 +157,14 @@ const std::string FileStorageTest::byte_stream_reader_name =
     "test_byte_stream_reader";
 
 
-TEST_F(FileStorageTest, CreateFileStorageCreatesDirectory) {
+TEST_F(FileStorageTest, CreateWritableFileStorageCreatesDirectory) {
   ASSERT_FALSE(PathUtil::ExistsDir(storage_path_));
-  CreateStorage(storage_path_);
+  CreateWritableStorage(storage_path_);
   ASSERT_TRUE(PathUtil::ExistsDir(storage_path_));
 }
 
 TEST_F(FileStorageTest, CreatingStreamCreatesFile) {
-  CreateStorage(storage_path_);
+  CreateWritableStorage(storage_path_);
 
   CreatePageStreamWriter(page_stream_name);
   ASSERT_TRUE(File::Exists(File::JoinPath(storage_path_, page_stream_name)));
@@ -166,7 +180,7 @@ TEST_F(FileStorageTest, WritingToByteStreamWritesToFile) {
   const char test_string[] = "test string";
   std::unique_ptr<char> buffer(new char[128]);
 
-  CreateStorage(storage_path_);
+  CreateWritableStorage(storage_path_);
   CreateByteStreamWriter(stream_name);
   ASSERT_TRUE(byte_stream_writer_->AppendBytes(
       test_string, strlen(test_string)).is_success());
@@ -180,7 +194,7 @@ TEST_F(FileStorageTest, WritingToPageStreamWritesToFile) {
   const std::string stream_name = "test_stream";
   std::unique_ptr<char> buffer(new char[128]);
 
-  CreateStorage(storage_path_);
+  CreateWritableStorage(storage_path_);
   CreatePageStreamWriter(stream_name);
   std::unique_ptr<const Page> page;
   CreateTestPage(&page);
@@ -193,7 +207,7 @@ TEST_F(FileStorageTest, WritingToPageStreamWritesToFile) {
 }
 
 TEST_F(FileStorageTest, WritingToFinalizedThrows) {
-  CreateStorage(storage_path_);
+  CreateWritableStorage(storage_path_);
 
   CreatePageStreamWriter(page_stream_name);
   page_stream_writer_->Finalize();
@@ -206,8 +220,22 @@ TEST_F(FileStorageTest, WritingToFinalizedThrows) {
   ASSERT_TRUE(byte_stream_writer_->AppendBytes(nullptr, 0).is_failure());
 }
 
+TEST_F(FileStorageTest, OpeningOpenedStreamFails) {
+  CreateWritableStorage(storage_path_);
+  const std::string stream_name("test_stream");
+
+  FailureOrOwned<PageStreamWriter> first_stream_writer =
+            writable_storage_->CreatePageStreamWriter(stream_name);
+  FailureOrOwned<PageStreamWriter> second_stream_writer =
+            writable_storage_->CreatePageStreamWriter(stream_name);
+  ASSERT_TRUE(first_stream_writer.is_success());
+  ASSERT_TRUE(second_stream_writer.is_failure());
+
+  first_stream_writer->Finalize();
+}
+
 TEST_F(FileStorageTest, ReadingFromFinalizedThrows) {
-  CreateStorage(storage_path_);
+  CreateReadableStorage(storage_path_);
   CreateTestFile(byte_stream_reader_name, nullptr, 0);
 
   CreateByteStreamReader(byte_stream_reader_name);
@@ -225,7 +253,7 @@ TEST_F(FileStorageTest, ReadingFromByteStream) {
   char actual[32];
   int64_t length = strlen(expected);
 
-  CreateStorage(storage_path_);
+  CreateReadableStorage(storage_path_);
   CreateTestFile(byte_stream_reader_name, expected, length);
   CreateByteStreamReader(byte_stream_reader_name);
 
@@ -247,7 +275,7 @@ TEST_F(FileStorageTest, ReadingFromPageStream) {
   memcpy(data.get(), page->RawData(), page_size);
   memcpy(data.get() + page_size, page->RawData(), page_size);
 
-  CreateStorage(storage_path_);
+  CreateReadableStorage(storage_path_);
   CreateTestFile(page_stream_reader_name,
                  data.get(),
                  page_size * 2);
@@ -265,7 +293,6 @@ TEST_F(FileStorageTest, ReadingFromPageStream) {
 
   ASSERT_TRUE(page_stream_reader_->Finalize().is_success());
 }
-
 
 
 }  // namespace

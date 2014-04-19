@@ -1,4 +1,5 @@
-// Copyright 2014 Wojciech Żółtak. All Rights Reserved.
+// Copyright 2014 Google Inc.  All Rights Reserved
+// Author: Wojtek Żółtak (wojciech.zoltak@gmail.com)
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -11,7 +12,6 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-//
 
 #include "supersonic/contrib/storage/core/storage_sink.h"
 
@@ -38,12 +38,12 @@ namespace supersonic {
 
 FailureOrVoid DumpSchema(
     const TupleSchema& schema,
-    Storage* storage,
+    WritableStorage* storage,
     BufferAllocator* buffer_allocator);
 
 FailureOrOwned<Sink> CreateStorageSink(
     std::unique_ptr<std::vector<std::unique_ptr<Sink> > > page_sinks,
-    std::unique_ptr<Storage> storage);
+    std::unique_ptr<WritableStorage> storage);
 
 namespace {
 
@@ -64,7 +64,7 @@ class MockPageSink : public Sink {
   }
 };
 
-class MockStorage : public Storage {
+class MockStorage : public WritableStorage {
  public:
   MOCK_METHOD1(CreatePageStreamWriter,
                FailureOrOwned<PageStreamWriter>(const std::string& name));
@@ -134,7 +134,7 @@ TEST_F(StorageSinkTest, WritesMetadata) {
 TEST_F(StorageSinkTest, WritingToFinalizedThrows) {
   std::unique_ptr<std::vector<std::unique_ptr<Sink> > > page_sinks(
       new std::vector<std::unique_ptr<Sink> >());
-  std::unique_ptr<Storage> storage(new MockStorage());
+  std::unique_ptr<WritableStorage> storage(new MockStorage());
   TupleSchema schema;
   Table table(schema, HeapBufferAllocator::Get());
 
@@ -153,7 +153,7 @@ TEST_F(StorageSinkTest, FinalizesAffectsPageSinks) {
   page_sinks->emplace_back((new MockPageSink())->ExpectFinalize());
   page_sinks->emplace_back((new MockPageSink())->ExpectFinalize());
 
-  std::unique_ptr<Storage> storage(new MockStorage());
+  std::unique_ptr<WritableStorage> storage(new MockStorage());
   TupleSchema schema = CreateTupleSchema();
 
   FailureOrOwned<Sink> storage_sink_result =
@@ -174,7 +174,7 @@ TEST_F(StorageSinkTest, DataIsPassedToPageSinks) {
       (new MockPageSink())->ExpectFinalize()->ExpectWrite(view));
   page_sinks->emplace_back(
       (new MockPageSink())->ExpectFinalize()->ExpectWrite(view));
-  std::unique_ptr<Storage> storage(new MockStorage());
+  std::unique_ptr<WritableStorage> storage(new MockStorage());
 
   FailureOrOwned<Sink> storage_sink_result =
       CreateStorageSink(std::move(page_sinks), std::move(storage));

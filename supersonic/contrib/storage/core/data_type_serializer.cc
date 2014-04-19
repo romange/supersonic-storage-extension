@@ -26,21 +26,21 @@
 namespace supersonic {
 
 // Serializer for common numeric types, like INT32 or DOUBLE. Simply copies the
-// data into output stream.
+// data into output buffer.
 template <DataType T>
 class NumericDataTypeSerializer : public Serializer {
  public:
   typedef typename TypeTraits<T>::cpp_type CppType;
   NumericDataTypeSerializer() {}
 
-  FailureOrVoid Serialize(PageBuilder* output_buffer,
-                          int output_stream,
+  FailureOrVoid Serialize(PageBuilder* output_page,
+                          int output_buffer_number,
                           VariantConstPointer data[],
                           const size_t lengths[],
                           const size_t arrays) {
     for (size_t array_index = 0; array_index < arrays; array_index ++) {
       const CppType* data_chunk = data[array_index].as<T>();
-      output_buffer->AppendToByteBuffer(output_stream,
+      output_page->AppendToByteBuffer(output_buffer_number,
                                         data_chunk,
                                         lengths[array_index] * sizeof(CppType));
     }
@@ -60,8 +60,8 @@ class CppBooleanSerializer : public Serializer {
  public:
   CppBooleanSerializer() {}
 
-  FailureOrVoid Serialize(PageBuilder* output_buffer,
-                          int output_stream,
+  FailureOrVoid Serialize(PageBuilder* output_page,
+                          int output_buffer_number,
                           VariantConstPointer data[],
                           const size_t lengths[],
                           const size_t arrays) {
@@ -73,7 +73,7 @@ class CppBooleanSerializer : public Serializer {
       size_t buffer_length = sizeof(uint32_t) * (required_bitmasks + 1);
 
       FailureOr<void*> buffer_result =
-          output_buffer->NextFromByteBuffer(output_stream, buffer_length);
+          output_page->NextFromByteBuffer(output_buffer_number, buffer_length);
       PROPAGATE_ON_FAILURE(buffer_result);
       uint32_t* buffer = static_cast<uint32_t*>(buffer_result.get());
       memset(buffer, 0, buffer_length);
@@ -100,24 +100,39 @@ class CppBooleanSerializer : public Serializer {
 };
 
 // Serializer for types which are using StringPiece as `cpp_type`.
+//
+// Data is stored in following format:
+// +---------+---------+-----
+// | Array_1 | Array_2 | ...
+// +---------+---------+-----
+//
+// Array:
+// +---------------------------+---------+---------+-----
+// | uint32_t number_of_pieces | Piece_1 | Piece_2 | ...
+// +---------------------------+---------+---------+-----
+//
+// Piece:
+// +-----------------------+------------+------------+-----
+// | uint32_t piece_length | uint8_t b1 | uint8_t b2 | ...
+// +-----------------------+------------+------------+-----
+//
 template <DataType T>
 class VariableLengthSerializer : public Serializer {
  public:
   VariableLengthSerializer() {}
 
-  FailureOrVoid Serialize(PageBuilder* output_buffer,
-                          int output_stream,
+  FailureOrVoid Serialize(PageBuilder* output_page,
+                          int output_buffer_number,
                           VariantConstPointer data[],
                           const size_t lengths[],
                           const size_t arrays) {
     for (size_t array_index = 0; array_index < arrays; array_index ++) {
-      const StringPiece* pieces =
-          data[array_index].as<T>();
+      const StringPiece* pieces = data[array_index].as<T>();
       uint32_t pieces_count = lengths[array_index];
       size_t buffer_length = RequiredBufferSize(pieces, pieces_count);
 
       FailureOr<void*> buffer_result =
-          output_buffer->NextFromByteBuffer(output_stream, buffer_length);
+          output_page->NextFromByteBuffer(output_buffer_number, buffer_length);
       PROPAGATE_ON_FAILURE(buffer_result);
       uint8_t* buffer = static_cast<uint8_t*>(buffer_result.get());
 
@@ -171,6 +186,7 @@ FailureOrOwned<Serializer> CreateSerializer(DataType type) {
     case STRING:    return Success(new VariableLengthSerializer<STRING>());
     case ENUM:
     case DATA_TYPE:
+    default:
         THROW(new Exception(
             ERROR_INVALID_ARGUMENT_TYPE,
             StringPrintf("Unable to create DataTypeSerializer for type %d",

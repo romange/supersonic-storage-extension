@@ -1,4 +1,5 @@
-// Copyright 2014 Wojciech Żółtak. All Rights Reserved.
+// Copyright 2014 Google Inc.  All Rights Reserved
+// Author: Wojtek Żółtak (wojciech.zoltak@gmail.com)
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -11,7 +12,6 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-//
 
 #include "supersonic/contrib/storage/core/storage_sink.h"
 
@@ -53,7 +53,7 @@ class StorageSink : public Sink {
   StorageSink(
       std::unique_ptr<PageSinkVector> page_sinks,
       std::unique_ptr<NamedAttributeProjectorVector> projectors,
-      std::unique_ptr<Storage> storage)
+      std::unique_ptr<WritableStorage> storage)
       : page_sinks_(std::move(page_sinks)),
         projectors_(std::move(projectors)),
         storage_(std::move(storage)),
@@ -103,7 +103,7 @@ class StorageSink : public Sink {
  private:
   std::unique_ptr<PageSinkVector> page_sinks_;
   std::unique_ptr<NamedAttributeProjectorVector> projectors_;
-  std::unique_ptr<Storage> storage_;
+  std::unique_ptr<WritableStorage> storage_;
   bool finalized_;
   DISALLOW_COPY_AND_ASSIGN(StorageSink);
 };
@@ -113,7 +113,7 @@ class StorageSink : public Sink {
 // google::protobuf::TextFormat.
 FailureOrVoid DumpSchema(
     const TupleSchema& schema,
-    Storage* storage,
+    WritableStorage* storage,
     BufferAllocator* buffer_allocator) {
   FailureOrOwned<ByteStreamWriter> schema_stream_result =
       storage->CreateByteStreamWriter(kSchemaStreamName);
@@ -139,7 +139,7 @@ FailureOrVoid DumpSchema(
 
 FailureOrOwned<Sink> CreateStorageSink(
     const TupleSchema& schema,
-    std::unique_ptr<Storage> storage,
+    std::unique_ptr<WritableStorage> storage,
     BufferAllocator* buffer_allocator) {
   std::unique_ptr<vector<std::unique_ptr<Sink> > > page_sinks(
       new vector<std::unique_ptr<Sink> >());
@@ -183,7 +183,7 @@ FailureOrOwned<Sink> CreateStorageSink(
 
 FailureOrOwned<Sink> CreateStorageSink(
     std::unique_ptr<std::vector<std::unique_ptr<Sink> > > page_sinks,
-    std::unique_ptr<Storage> storage) {
+    std::unique_ptr<WritableStorage> storage) {
   std::unique_ptr<std::vector<
       std::unique_ptr<NamedAttributeProjector> > > projectors(
           new std::vector<std::unique_ptr<NamedAttributeProjector> >());

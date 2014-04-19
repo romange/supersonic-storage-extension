@@ -1,4 +1,5 @@
-// Copyright 2014 Wojciech Żółtak. All Rights Reserved.
+// Copyright 2014 Google Inc.  All Rights Reserved
+// Author: Wojtek Żółtak (wojciech.zoltak@gmail.com)
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -11,7 +12,6 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-//
 
 #ifndef SUPERSONIC_CONTRIB_STORAGE_CORE_STORAGE_SINK_H_
 #define SUPERSONIC_CONTRIB_STORAGE_CORE_STORAGE_SINK_H_
@@ -32,7 +32,7 @@ namespace supersonic {
 // ownership over storage.
 FailureOrOwned<Sink> CreateStorageSink(
     const TupleSchema& schema,
-    std::unique_ptr<Storage> storage,
+    std::unique_ptr<WritableStorage> storage,
     BufferAllocator* buffer_allocator);
 
 }  // namespace supersonic

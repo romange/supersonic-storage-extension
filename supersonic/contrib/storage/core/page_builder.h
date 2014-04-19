@@ -63,6 +63,8 @@ class PageBuilder {
  private:
   class Implementation;
   std::unique_ptr<Implementation> implementation_;
+
+  DISALLOW_COPY_AND_ASSIGN(PageBuilder);
 };
 
 

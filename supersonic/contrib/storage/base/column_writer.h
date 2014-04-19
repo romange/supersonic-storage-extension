@@ -30,7 +30,7 @@ class ColumnWriter {
  public:
   virtual ~ColumnWriter() {}
 
-  // Writes Column into given page_builder.
+  // Writes a Column into underlying page_builder.
   virtual FailureOrVoid WriteColumn(const Column& column,
                                     rowcount_t row_count) = 0;
 

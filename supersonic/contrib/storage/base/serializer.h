@@ -27,18 +27,19 @@ namespace supersonic {
 // Serializer may be stateful and adapt its behavior between calls.
 class Serializer {
  public:
-  Serializer() {};
+  Serializer() {}
   virtual ~Serializer() {}
 
-  // Serializes given data, writing output into `output_buffer`. The support
-  // for array in Supersonic is planned. Because of that this function
-  // gets a multidimensional array `data`, described by `lengths` and `arrays`.
+  // Serializes given data, writing output into given buffer in `output_page`.
+  // The support for array in Supersonic is planned. Because of that this
+  // function gets a multidimensional array `data`, described by `lengths` and
+  // `arrays`.
   //
   // TODO(wzoltak): When NULLs are represented as bitmasks it is necessary
-  //                to user VariantConstPointer::raw(), since `bool_const_ptr`
+  //                to use VariantConstPointer::raw(), since `bool_const_ptr`
   //                is not a CppType of any DataType.
-  virtual FailureOrVoid Serialize(PageBuilder* output_buffer,
-                                  int output_stream,
+  virtual FailureOrVoid Serialize(PageBuilder* output_page,
+                                  int output_buffer_number,
                                   VariantConstPointer data[],
                                   const size_t lengths[],
                                   const size_t arrays) = 0;

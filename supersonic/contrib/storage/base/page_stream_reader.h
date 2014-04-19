@@ -21,13 +21,17 @@
 
 namespace supersonic {
 
-// Interface for page stream reading.
+// Interface for reading from page stream.
 class PageStreamReader {
  public:
   virtual ~PageStreamReader() {}
 
+  // Returns next page from stream. Empty page indicates end of stream.
   virtual FailureOr<const Page*> NextPage() = 0;
 
+  // Finalizes the PageStreamReader. After the reader is serialized it can not
+  // be used for reading anymore. Finalize must be always called before the
+  // object is destroyed.
   virtual FailureOrVoid Finalize() = 0;
 };
 

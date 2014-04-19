@@ -12,6 +12,14 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
+//
+// Classes for file-based persistent storage. Currently, only the unix file
+// system is supported. It is possible to integrate other file systems,
+// e.g. distributed FS like HDFS, by creating an implementation of File and
+// PathUtil interfaces.
+//
+// No two storage objects for single location should be active at the same time
+// (either Writable or Readable).
 
 #ifndef SUPERSONIC_CONTRIB_STORAGE_CORE_FILE_STORAGE_H_
 #define SUPERSONIC_CONTRIB_STORAGE_CORE_FILE_STORAGE_H_
@@ -35,19 +43,55 @@
 
 namespace supersonic {
 
+namespace {
+
 const size_t kInitialPageReaderBuffer = 1024 * 1024;  // 1MB
 
-// Storage which stores data in files, operating via the supersonic::File
-// interface.
+// Utility class which provides exclusive access to files.
 template<class FileT>
-class FileStorage : public Storage {
+class FileStreamsProvider {
  public:
-  explicit FileStorage(const std::string& path,
-                       BufferAllocator* buffer_allocator)
-      : path_(path), buffer_allocator_(buffer_allocator) {
+  FileStreamsProvider(const std::string& path,
+                      BufferAllocator* allocator)
+      : path_(path) {
     static_assert(std::is_base_of<File, FileT>::value,
         "Not a supersonic::File interface implementation!");
   }
+
+  // Opens file with given name and mode, in storage. Throws when file with
+  // given name was previously used.
+  FailureOrOwned<File> OpenFileWithMode(const std::string& stream_name,
+                                        const std::string& mode) {
+    if (streams_.find(stream_name) != streams_.end()) {
+      THROW(new Exception(
+          ERROR_INVALID_ARGUMENT_VALUE,
+          StringPrintf("Stream %s already exists.", stream_name.c_str())));
+    }
+
+    const std::string stream_path = FileT::JoinPath(path_, stream_name);
+    File* file = FileT::OpenOrDie(stream_path, mode);
+    if (file == nullptr) {
+      // TODO(wzoltak): Actually, there is not guarantee that errno will be set.
+      THROW(new Exception(ERROR_GENERAL_IO_ERROR, strerror(errno)));
+    }
+    streams_.insert(stream_name);
+    return Success(file);
+  }
+
+ private:
+  const std::string path_;
+  std::set<std::string> streams_;
+  DISALLOW_COPY_AND_ASSIGN(FileStreamsProvider);
+};
+
+// WritableStorage which stores data in files, operating via the
+// supersonic::File interface.
+template<class FileT>
+class WritableFileStorage : public WritableStorage {
+ public:
+  WritableFileStorage(const std::string& path,
+                       BufferAllocator* allocator)
+      : file_streams_provider_(path, allocator) {}
 
   virtual FailureOrOwned<PageStreamWriter> CreatePageStreamWriter(
       const std::string& name) {
@@ -63,73 +107,14 @@ class FileStorage : public Storage {
     return Success(new FileByteStreamWriter(file.release()));
   }
 
-  virtual FailureOrOwned<PageStreamReader> CreatePageStreamReader(
-      const std::string& name) {
-    PageBuilder empty_page_builder(0, buffer_allocator_);
-    FailureOrOwned<Page> empty_page_result = empty_page_builder.CreatePage();
-    PROPAGATE_ON_FAILURE(empty_page_result);
-    std::unique_ptr<Page> empty_page(empty_page_result.release());
-
-    std::unique_ptr<Buffer> buffer(
-        buffer_allocator_->Allocate(kInitialPageReaderBuffer));
-    if (buffer->data() == NULL) {
-      THROW(new Exception(
-            ERROR_MEMORY_EXCEEDED,
-            "Can not allocate enough memory for PageStreamReader buffer."));
-    }
-
-    FailureOrOwned<File> file = OpenFileForReading(name);
-    PROPAGATE_ON_FAILURE(file);
-
-    return Success(new FilePageStreamReader(file.release(),
-                                            std::move(buffer),
-                                            buffer_allocator_,
-                                            std::move(empty_page)));
-
-
-    THROW(new Exception(ERROR_NOT_IMPLEMENTED, "Not implemented."));
-  }
-
-  virtual FailureOrOwned<ByteStreamReader> CreateByteStreamReader(
-      const std::string& name) {
-    FailureOrOwned<File> file_result = OpenFileForReading(name);
-    PROPAGATE_ON_FAILURE(file_result);
-    return Success(new FileByteStreamReader(file_result.release()));
-  }
-
  private:
   // Opens file with given name, in storage, for writing. If file exists, its
   // contents would be removed.
   FailureOrOwned<File> OpenFileForWriting(const std::string& stream_name) {
-    return OpenFileForStream(stream_name, "w+");
+    return file_streams_provider_.OpenFileWithMode(stream_name, "w+");
   }
 
-  // Opens file with given name, in storage, for reading.
-  FailureOrOwned<File> OpenFileForReading(const std::string& stream_name) {
-    return OpenFileForStream(stream_name, "r");
-  }
-
-  // Opens file with given name in given mode, in storage.
-  FailureOrOwned<File> OpenFileForStream(const std::string& stream_name,
-                                         const std::string& mode) {
-    if (streams_.find(stream_name) != streams_.end()) {
-      THROW(new Exception(
-          ERROR_INVALID_ARGUMENT_VALUE,
-          StringPrintf("Stream %s already exists.", stream_name.c_str())));
-    }
-
-    const std::string stream_path = FileT::JoinPath(path_, stream_name);
-    File* file = FileT::OpenOrDie(stream_path, mode);
-    if (file == nullptr) {
-      // TODO(wzoltak): Actually, there is not guarantee that errno will be set.
-      THROW(new Exception(ERROR_GENERAL_IO_ERROR, strerror(errno)));
-    }
-    return Success(file);
-  }
-
-  const std::string path_;
-  std::set<std::string> streams_;
-  BufferAllocator* buffer_allocator_;
+  FileStreamsProvider<FileT> file_streams_provider_;
 
   // Internal ByteStreamWriter implementation for FileStorage.
   class FileByteStreamWriter : public ByteStreamWriter {
@@ -203,6 +188,62 @@ class FileStorage : public Storage {
     FileByteStreamWriter byte_stream_;
     DISALLOW_COPY_AND_ASSIGN(FilePageStreamWriter);
   };
+
+  DISALLOW_COPY_AND_ASSIGN(WritableFileStorage);
+};
+
+
+// ReadableStorage which reads data from files, operating via the
+// supersonic::File interface.
+template<class FileT>
+class ReadableFileStorage : public ReadableStorage {
+ public:
+  explicit ReadableFileStorage(const std::string& path,
+                               BufferAllocator* allocator)
+      : allocator_(allocator), file_streams_provider_(path, allocator) {}
+
+  virtual FailureOrOwned<PageStreamReader> CreatePageStreamReader(
+      const std::string& name) {
+    PageBuilder empty_page_builder(0, allocator_);
+    FailureOrOwned<Page> empty_page_result = empty_page_builder.CreatePage();
+    PROPAGATE_ON_FAILURE(empty_page_result);
+    std::unique_ptr<Page> empty_page(empty_page_result.release());
+
+    std::unique_ptr<Buffer> buffer(
+        allocator_->Allocate(kInitialPageReaderBuffer));
+    if (buffer->data() == NULL) {
+      THROW(new Exception(
+            ERROR_MEMORY_EXCEEDED,
+            "Can not allocate enough memory for PageStreamReader buffer."));
+    }
+
+    FailureOrOwned<File> file = OpenFileForReading(name);
+    PROPAGATE_ON_FAILURE(file);
+
+    return Success(new FilePageStreamReader(file.release(),
+                                            std::move(buffer),
+                                            allocator_,
+                                            std::move(empty_page)));
+
+
+    THROW(new Exception(ERROR_NOT_IMPLEMENTED, "Not implemented."));
+  }
+
+  virtual FailureOrOwned<ByteStreamReader> CreateByteStreamReader(
+      const std::string& name) {
+    FailureOrOwned<File> file_result = OpenFileForReading(name);
+    PROPAGATE_ON_FAILURE(file_result);
+    return Success(new FileByteStreamReader(file_result.release()));
+  }
+
+ private:
+  // Opens file with given name, in storage, for reading.
+  FailureOrOwned<File> OpenFileForReading(const std::string& stream_name) {
+    return file_streams_provider_.OpenFileWithMode(stream_name, "r");
+  }
+
+  BufferAllocator* allocator_;
+  FileStreamsProvider<FileT> file_streams_provider_;
 
   // Internal ByteStreamReader implementation for FileStorage.
   class FileByteStreamReader : public ByteStreamReader {
@@ -382,12 +423,19 @@ class FileStorage : public Storage {
     DISALLOW_COPY_AND_ASSIGN(FilePageStreamReader);
   };
 
-  DISALLOW_COPY_AND_ASSIGN(FileStorage);
+  DISALLOW_COPY_AND_ASSIGN(ReadableFileStorage);
 };
 
+}  // namespace
+
+
+// Creates the WritableStorage which stores data in files. `FileT` and
+// `PathUtilT` should be supersonic::File and supersonic::PathUtil
+// implementation. Meaning of `path` depends on chosen implementation.
 template<class FileT, class PathUtilT>
-FailureOrOwned<Storage> CreateFileStorage(const std::string& path,
-                                          BufferAllocator* buffer_allocator) {
+FailureOrOwned<WritableStorage>
+    CreateWritableFileStorage(const std::string& path,
+                              BufferAllocator* buffer_allocator) {
   if (!PathUtilT::ExistsDir(path)) {
     // TODO(wzoltak): Good mode?
     bool created = PathUtilT::MkDir(path, S_IRWXU, true /* with_parents */);
@@ -402,7 +450,23 @@ FailureOrOwned<Storage> CreateFileStorage(const std::string& path,
         ERROR_GENERAL_IO_ERROR,
         StringPrintf("Directory '%s' already exists.", path.c_str())));
   }
-  return Success(new FileStorage<FileT>(path, buffer_allocator));
+  return Success(new WritableFileStorage<FileT>(path, buffer_allocator));
+}
+
+// Creates the ReadableStorage which reads data from files. `FileT` and
+// `PathUtilT` should be supersonic::File and supersonic::PathUtil
+// implementation. Meaning of `path` depends on chosen implementation.
+template<class FileT, class PathUtilT>
+FailureOrOwned<ReadableStorage>
+    CreateReadableFileStorage(const std::string& path,
+                              BufferAllocator* allocator) {
+  if (PathUtilT::ExistsDir(path)) {
+    return Success(new ReadableFileStorage<FileT>(path, allocator));
+  } else {
+    THROW(new Exception(
+        ERROR_GENERAL_IO_ERROR,
+        StringPrintf("Directory '%s' does not exist.", path.c_str())));
+  }
 }
 
 }  // namespace supersonic

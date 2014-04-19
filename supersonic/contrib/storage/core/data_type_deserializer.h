@@ -13,20 +13,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef SUPERSONIC_CONTRIB_STORAGE_CORE_DATA_TYPE_SERIALIZER_H_
-#define SUPERSONIC_CONTRIB_STORAGE_CORE_DATA_TYPE_SERIALIZER_H_
+#ifndef SUPERSONIC_CONTRIB_STORAGE_CORE_DATA_TYPE_DESERIALIZER_H_
+#define SUPERSONIC_CONTRIB_STORAGE_CORE_DATA_TYPE_DESERIALIZER_H_
 
 #include <stddef.h>
 #include <endian.h>
 
 #include "supersonic/base/exception/result.h"
-#include "supersonic/base/infrastructure/bit_pointers.h"
-#include "supersonic/base/infrastructure/types.h"
-#include "supersonic/base/infrastructure/variant_pointer.h"
-#include "supersonic/contrib/storage/base/serializer.h"
-#include "supersonic/contrib/storage/core/page_builder.h"
-#include "supersonic/utils/exception/failureor.h"
-#include "supersonic/utils/macros.h"
+#include "supersonic/base/infrastructure/bit_pointers.h"  // USE_BITS_...
+#include "supersonic/contrib/storage/base/deserializer.h"
 #include "supersonic/proto/supersonic.pb.h"
 
 
@@ -42,9 +37,10 @@
 
 namespace supersonic {
 
-// Creates a Serializer for given DataType.
-FailureOrOwned<Serializer> CreateSerializer(DataType type);
+// Creates a Deserializer for given DataType.
+FailureOrOwned<Deserializer> CreateDeserializer(DataType type,
+                                                BufferAllocator* allocator);
 
 }  // namespace supersonic
 
-#endif  // SUPERSONIC_CONTRIB_STORAGE_CORE_DATA_TYPE_SERIALIZER_H_
+#endif  // SUPERSONIC_CONTRIB_STORAGE_CORE_DATA_TYPE_DESERIALIZER_H_
