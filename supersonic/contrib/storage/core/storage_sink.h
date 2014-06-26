@@ -35,6 +35,11 @@ FailureOrOwned<Sink> CreateStorageSink(
     std::unique_ptr<WritableStorage> storage,
     BufferAllocator* buffer_allocator);
 
+FailureOrOwned<Sink> CreateSingleFileStorageSink(
+    const TupleSchema& schema,
+    std::unique_ptr<WritableStorage> storage,
+    BufferAllocator* buffer_allocator);
+
 }  // namespace supersonic
 
 #endif  // SUPERSONIC_CONTRIB_STORAGE_CORE_STORAGE_SINK_H_

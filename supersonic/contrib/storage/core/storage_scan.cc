@@ -118,6 +118,31 @@ FailureOr<TupleSchema> ReadSchema(
   return Success(tuple_schema_result.get());
 }
 
+FailureOr<TupleSchema> ReadSchema(PageStreamReader* page_stream_reader) {
+  FailureOr<const Page*> page_result = page_stream_reader->NextPage();
+  PROPAGATE_ON_FAILURE(page_result);
+  const Page* page = page_result.get();
+
+  FailureOr<const ByteBufferHeader*> byte_buffer_header =
+      page->ByteBufferHeader(0);
+  PROPAGATE_ON_FAILURE(byte_buffer_header);
+
+  FailureOr<const void*> byte_buffer = page->ByteBuffer(0);
+  PROPAGATE_ON_FAILURE(byte_buffer);
+
+  SchemaProto schema_proto;
+  ::google::protobuf::io::ArrayInputStream
+      array_input_stream(byte_buffer.get(),
+                         byte_buffer_header.get()->length);
+  ::google::protobuf::TextFormat::Parse(&array_input_stream, &schema_proto);
+
+  FailureOr<TupleSchema> tuple_schema_result =
+     SchemaConverter::SchemaProtoToTupleSchema(schema_proto);
+  PROPAGATE_ON_FAILURE(tuple_schema_result);
+
+  return Success(tuple_schema_result.get());
+}
+
 FailureOrOwned<Cursor> StorageScan(std::unique_ptr<ReadableStorage> storage,
                                    BufferAllocator* allocator) {
   FailureOr<TupleSchema> schema_result = ReadSchema(storage.get(), allocator);
@@ -150,6 +175,31 @@ FailureOrOwned<Cursor> StorageScan(std::unique_ptr<ReadableStorage> storage,
   std::unique_ptr<Cursor> coalesce(coalesce_result.release());
 
   return Success(new StorageScanCursor(schema, std::move(coalesce)));
+}
+
+FailureOrOwned<Cursor>
+    SingleFileStorageScan(std::unique_ptr<ReadableStorage> storage,
+                          BufferAllocator* allocator) {
+  // Create PageStreamReader
+  FailureOrOwned<PageStreamReader> page_stream_reader_result =
+      storage->CreatePageStreamReader("data");
+  PROPAGATE_ON_FAILURE(page_stream_reader_result);
+  std::unique_ptr<PageStreamReader>
+      page_stream_reader(page_stream_reader_result.release());
+
+  // Read schema
+  FailureOr<TupleSchema> schema = ReadSchema(page_stream_reader.get());
+  PROPAGATE_ON_FAILURE(schema);
+
+  FailureOrOwned<Cursor> page_reader_result =
+      PageReader(schema.get(),
+                 std::move(page_stream_reader),
+                 allocator);
+  PROPAGATE_ON_FAILURE(page_reader_result);
+  std::unique_ptr<Cursor> page_reader(page_reader_result.release());
+
+
+  return Success(new StorageScanCursor(schema.get(), std::move(page_reader)));
 }
 
 }  // namespace supersonic

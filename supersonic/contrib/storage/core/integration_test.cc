@@ -119,5 +119,55 @@ TEST_F(IntegrationTest, FullFlow) {
   }
 }
 
+TEST_F(IntegrationTest, SingleFile) {
+  BufferAllocator* allocator = HeapBufferAllocator::Get();
+
+  FailureOrOwned<WritableStorage> writable_storage_result =
+        CreateWritableFileStorage<File, PathUtil>(storage_path_, allocator);
+  ASSERT_TRUE(writable_storage_result.is_success());
+  std::unique_ptr<WritableStorage>
+      writable_storage(writable_storage_result.release());
+
+
+  FailureOrOwned<Sink> storage_sink_result =
+      CreateSingleFileStorageSink(schema_,
+                                  std::move(writable_storage),
+                                  allocator);
+  ASSERT_TRUE(storage_sink_result.is_success());
+  std::unique_ptr<Sink> storage_sink(storage_sink_result.release());
+
+
+  int seeds[] = { 124, -543, 8656, -74512, 23412, 13412, 412 };
+  Generator generator(schema_, seeds, pieces_);
+  for (int i = 0; i < 100; i++) {
+    const View& view = generator.Generate(1000);
+    ASSERT_TRUE(storage_sink->Write(view).is_success());
+  }
+  storage_sink->Finalize();
+
+  FailureOrOwned<ReadableStorage> readable_storage_result =
+      CreateReadableFileStorage<File, PathUtil>(storage_path_, allocator);
+  ASSERT_TRUE(readable_storage_result.is_success());
+  std::unique_ptr<ReadableStorage>
+      readable_storage(readable_storage_result.release());
+
+  FailureOrOwned<Cursor> storage_scan_result =
+      SingleFileStorageScan(std::move(readable_storage), allocator);
+  ASSERT_TRUE(storage_scan_result.is_success());
+  std::unique_ptr<Cursor> storage_scan(storage_scan_result.release());
+
+
+  std::unique_ptr<Validator> validator = generator.CreateValidator();
+  while (true) {
+    ResultView result_view = storage_scan->Next(20000);
+    if (result_view.is_eos()) {
+      break;
+    }
+
+    ASSERT_TRUE(result_view.has_data());
+    validator->Validate(result_view.view());
+  }
+}
+
 }  // namespace
 }  // namespace supersonic

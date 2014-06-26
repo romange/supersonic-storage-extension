@@ -31,6 +31,10 @@ FailureOrOwned<Cursor> StorageScan(std::unique_ptr<ReadableStorage> storage,
                                    BufferAllocator* allocator);
 
 
+FailureOrOwned<Cursor>
+    SingleFileStorageScan(std::unique_ptr<ReadableStorage> storage,
+                          BufferAllocator* allocator);
+
 }  // namespace supersonic
 
 #endif  // SUPERSONIC_CONTRIB_STORAGE_CORE_STORAGE_SCAN_H_

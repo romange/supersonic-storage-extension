@@ -47,12 +47,12 @@ const std::string kSchemaStreamName = "schema.meta";
 class StorageSink : public Sink {
  public:
   typedef vector<std::unique_ptr<Sink> > PageSinkVector;
-  typedef vector<std::unique_ptr<NamedAttributeProjector> >
-      NamedAttributeProjectorVector;
+  typedef vector<std::unique_ptr<const SingleSourceProjector> >
+      SingleSourceProjectorVector;
 
   StorageSink(
       std::unique_ptr<PageSinkVector> page_sinks,
-      std::unique_ptr<NamedAttributeProjectorVector> projectors,
+      std::unique_ptr<SingleSourceProjectorVector> projectors,
       std::unique_ptr<WritableStorage> storage)
       : page_sinks_(std::move(page_sinks)),
         projectors_(std::move(projectors)),
@@ -102,7 +102,7 @@ class StorageSink : public Sink {
 
  private:
   std::unique_ptr<PageSinkVector> page_sinks_;
-  std::unique_ptr<NamedAttributeProjectorVector> projectors_;
+  std::unique_ptr<SingleSourceProjectorVector> projectors_;
   std::unique_ptr<WritableStorage> storage_;
   bool finalized_;
   DISALLOW_COPY_AND_ASSIGN(StorageSink);
@@ -137,14 +137,39 @@ FailureOrVoid DumpSchema(
   return Success();
 }
 
+FailureOrVoid DumpSchema(
+    const TupleSchema& schema,
+    PageStreamWriter* page_stream,
+    BufferAllocator* allocator) {
+  PageBuilder page_builder(1, allocator);
+
+  std::string serialized_schema;
+  FailureOrOwned<SchemaProto> schema_proto_result =
+      SchemaConverter::TupleSchemaToSchemaProto(schema);
+  PROPAGATE_ON_FAILURE(schema_proto_result);
+  ::google::protobuf::TextFormat::PrintToString(*schema_proto_result,
+                                                &serialized_schema);
+
+  page_builder.AppendToByteBuffer(0,
+                                  serialized_schema.c_str(),
+                                  serialized_schema.length());
+
+  FailureOrOwned<Page> page_result = page_builder.CreatePage();
+  PROPAGATE_ON_FAILURE(page_result);
+  std::unique_ptr<Page> page(page_result.release());
+  PROPAGATE_ON_FAILURE(page_stream->AppendPage(*page));
+
+  return Success();
+}
+
 FailureOrOwned<Sink> CreateStorageSink(
     const TupleSchema& schema,
     std::unique_ptr<WritableStorage> storage,
     BufferAllocator* buffer_allocator) {
   std::unique_ptr<vector<std::unique_ptr<Sink> > > page_sinks(
       new vector<std::unique_ptr<Sink> >());
-  std::unique_ptr<vector<std::unique_ptr<NamedAttributeProjector> > >
-      projectors(new vector<std::unique_ptr<NamedAttributeProjector> >());
+  std::unique_ptr<vector<std::unique_ptr<const SingleSourceProjector> > >
+      projectors(new vector<std::unique_ptr<const SingleSourceProjector> >());
 
   for (size_t i = 0; i < schema.attribute_count(); i++) {
     const Attribute& attribute = schema.attribute(i);
@@ -181,12 +206,55 @@ FailureOrOwned<Sink> CreateStorageSink(
                                  std::move(storage)));
 }
 
+
+FailureOrOwned<Sink> CreateSingleFileStorageSink(
+    const TupleSchema& schema,
+    std::unique_ptr<WritableStorage> storage,
+    BufferAllocator* buffer_allocator) {
+  std::unique_ptr<vector<std::unique_ptr<Sink> > > page_sinks(
+      new vector<std::unique_ptr<Sink> >());
+  std::unique_ptr<vector<std::unique_ptr<const SingleSourceProjector> > >
+      projectors(new vector<std::unique_ptr<const SingleSourceProjector> >());
+
+  // Create page stream
+  FailureOrOwned<PageStreamWriter> page_stream_result =
+      storage->CreatePageStreamWriter("data");
+  PROPAGATE_ON_FAILURE(page_stream_result);
+  std::unique_ptr<PageStreamWriter> page_stream(page_stream_result.release());
+
+  // Dump Schema
+  DumpSchema(schema, page_stream.get(), buffer_allocator);
+
+  // Create projector
+  std::unique_ptr<const SingleSourceProjector> projector(ProjectAllAttributes());
+  FailureOrOwned<const BoundSingleSourceProjector> bound_projector_result(
+      projector->Bind(schema));
+  PROPAGATE_ON_FAILURE(bound_projector_result);
+  std::unique_ptr<const BoundSingleSourceProjector>
+      bound_projector(bound_projector_result.release());
+
+  // Create PageSink
+  FailureOrOwned<Sink> page_sink =
+      CreatePageSink(std::move(bound_projector),
+                     std::move(page_stream),
+                     buffer_allocator);
+  PROPAGATE_ON_FAILURE(page_sink);
+
+  page_sinks->emplace_back(page_sink.release());
+  projectors->emplace_back(projector.release());
+
+  return Success(new StorageSink(std::move(page_sinks),
+                                 std::move(projectors),
+                                 std::move(storage)));
+}
+
+// For testing purposes only.
 FailureOrOwned<Sink> CreateStorageSink(
     std::unique_ptr<std::vector<std::unique_ptr<Sink> > > page_sinks,
     std::unique_ptr<WritableStorage> storage) {
   std::unique_ptr<std::vector<
-      std::unique_ptr<NamedAttributeProjector> > > projectors(
-          new std::vector<std::unique_ptr<NamedAttributeProjector> >());
+      std::unique_ptr<const SingleSourceProjector> > > projectors(
+          new std::vector<std::unique_ptr<const SingleSourceProjector> >());
   return Success(new StorageSink(std::move(page_sinks),
                                  std::move(projectors),
                                  std::move(storage)));
