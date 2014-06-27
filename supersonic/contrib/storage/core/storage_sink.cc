@@ -20,6 +20,10 @@
 #include <string>
 #include <vector>
 
+#include "file_storage.h"
+
+#include "slicing_page_stream_writer.h"
+
 #include "supersonic/base/exception/exception_macros.h"
 #include "supersonic/base/exception/exception.h"
 #include "supersonic/base/memory/memory.h"
@@ -27,9 +31,11 @@
 #include "supersonic/contrib/storage/base/storage.h"
 #include "supersonic/contrib/storage/base/byte_stream_writer.h"
 #include "supersonic/contrib/storage/base/page_stream_writer.h"
+#include "supersonic/contrib/storage/core/file_storage.h"
 #include "supersonic/contrib/storage/core/page_builder.h"
 #include "supersonic/contrib/storage/core/page_sink.h"
 #include "supersonic/contrib/storage/util/schema_converter.h"
+#include "supersonic/contrib/storage/util/path_util.h"
 #include "supersonic/utils/exception/failureor.h"
 
 #include "supersonic/proto/supersonic.pb.h"
@@ -137,31 +143,6 @@ FailureOrVoid DumpSchema(
   return Success();
 }
 
-FailureOrVoid DumpSchema(
-    const TupleSchema& schema,
-    PageStreamWriter* page_stream,
-    BufferAllocator* allocator) {
-  PageBuilder page_builder(1, allocator);
-
-  std::string serialized_schema;
-  FailureOrOwned<SchemaProto> schema_proto_result =
-      SchemaConverter::TupleSchemaToSchemaProto(schema);
-  PROPAGATE_ON_FAILURE(schema_proto_result);
-  ::google::protobuf::TextFormat::PrintToString(*schema_proto_result,
-                                                &serialized_schema);
-
-  page_builder.AppendToByteBuffer(0,
-                                  serialized_schema.c_str(),
-                                  serialized_schema.length());
-
-  FailureOrOwned<Page> page_result = page_builder.CreatePage();
-  PROPAGATE_ON_FAILURE(page_result);
-  std::unique_ptr<Page> page(page_result.release());
-  PROPAGATE_ON_FAILURE(page_stream->AppendPage(*page));
-
-  return Success();
-}
-
 FailureOrOwned<Sink> CreateStorageSink(
     const TupleSchema& schema,
     std::unique_ptr<WritableStorage> storage,
@@ -209,7 +190,7 @@ FailureOrOwned<Sink> CreateStorageSink(
 
 FailureOrOwned<Sink> CreateSingleFileStorageSink(
     const TupleSchema& schema,
-    std::unique_ptr<WritableStorage> storage,
+    std::unique_ptr<SuperWritableStorage> storage,
     BufferAllocator* buffer_allocator) {
   std::unique_ptr<vector<std::unique_ptr<Sink> > > page_sinks(
       new vector<std::unique_ptr<Sink> >());
@@ -217,13 +198,13 @@ FailureOrOwned<Sink> CreateSingleFileStorageSink(
       projectors(new vector<std::unique_ptr<const SingleSourceProjector> >());
 
   // Create page stream
-  FailureOrOwned<PageStreamWriter> page_stream_result =
-      storage->CreatePageStreamWriter("data");
-  PROPAGATE_ON_FAILURE(page_stream_result);
-  std::unique_ptr<PageStreamWriter> page_stream(page_stream_result.release());
-
-  // Dump Schema
-  DumpSchema(schema, page_stream.get(), buffer_allocator);
+  FailureOrOwned<PageStreamWriter> slicing_page_stream_result =
+      CreateSlicingPageStreamWriter(schema,
+                                    std::move(storage),
+                                    buffer_allocator);
+  PROPAGATE_ON_FAILURE(slicing_page_stream_result);
+  std::unique_ptr<PageStreamWriter>
+      slicing_page_stream(slicing_page_stream_result.release());
 
   // Create projector
   std::unique_ptr<const SingleSourceProjector> projector(ProjectAllAttributes());
@@ -236,16 +217,18 @@ FailureOrOwned<Sink> CreateSingleFileStorageSink(
   // Create PageSink
   FailureOrOwned<Sink> page_sink =
       CreatePageSink(std::move(bound_projector),
-                     std::move(page_stream),
+                     std::move(slicing_page_stream),
                      buffer_allocator);
   PROPAGATE_ON_FAILURE(page_sink);
 
   page_sinks->emplace_back(page_sink.release());
   projectors->emplace_back(projector.release());
 
+  std::unique_ptr<WritableStorage> empty_storage;
+
   return Success(new StorageSink(std::move(page_sinks),
                                  std::move(projectors),
-                                 std::move(storage)));
+                                 std::move(empty_storage)));
 }
 
 // For testing purposes only.

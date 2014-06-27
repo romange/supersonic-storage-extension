@@ -122,12 +122,11 @@ TEST_F(IntegrationTest, FullFlow) {
 TEST_F(IntegrationTest, SingleFile) {
   BufferAllocator* allocator = HeapBufferAllocator::Get();
 
-  FailureOrOwned<WritableStorage> writable_storage_result =
-        CreateWritableFileStorage<File, PathUtil>(storage_path_, allocator);
+  FailureOrOwned<SuperWritableStorage> writable_storage_result =
+        CreateSuperWritableFileStorage<File, PathUtil>(storage_path_, allocator);
   ASSERT_TRUE(writable_storage_result.is_success());
-  std::unique_ptr<WritableStorage>
+  std::unique_ptr<SuperWritableStorage>
       writable_storage(writable_storage_result.release());
-
 
   FailureOrOwned<Sink> storage_sink_result =
       CreateSingleFileStorageSink(schema_,
@@ -145,10 +144,10 @@ TEST_F(IntegrationTest, SingleFile) {
   }
   storage_sink->Finalize();
 
-  FailureOrOwned<ReadableStorage> readable_storage_result =
-      CreateReadableFileStorage<File, PathUtil>(storage_path_, allocator);
+  FailureOrOwned<SuperReadableStorage> readable_storage_result =
+      CreateSuperReadableFileStorage<File, PathUtil>(storage_path_, allocator);
   ASSERT_TRUE(readable_storage_result.is_success());
-  std::unique_ptr<ReadableStorage>
+  std::unique_ptr<SuperReadableStorage>
       readable_storage(readable_storage_result.release());
 
   FailureOrOwned<Cursor> storage_scan_result =

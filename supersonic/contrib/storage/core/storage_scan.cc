@@ -23,6 +23,8 @@
 #include <string>
 #include <vector>
 
+#include "merging_page_stream_reader.h"
+
 #include "supersonic/base/exception/exception.h"
 #include "supersonic/base/exception/result.h"
 #include "supersonic/base/infrastructure/projector.h"
@@ -178,14 +180,14 @@ FailureOrOwned<Cursor> StorageScan(std::unique_ptr<ReadableStorage> storage,
 }
 
 FailureOrOwned<Cursor>
-    SingleFileStorageScan(std::unique_ptr<ReadableStorage> storage,
+    SingleFileStorageScan(std::unique_ptr<SuperReadableStorage> storage,
                           BufferAllocator* allocator) {
   // Create PageStreamReader
-  FailureOrOwned<PageStreamReader> page_stream_reader_result =
-      storage->CreatePageStreamReader("data");
+  FailureOrOwned<PageStreamReader> page_stream_reader_result
+      = CreateMergingPageStreamReader(std::move(storage));
   PROPAGATE_ON_FAILURE(page_stream_reader_result);
-  std::unique_ptr<PageStreamReader>
-      page_stream_reader(page_stream_reader_result.release());
+    std::unique_ptr<PageStreamReader>
+        page_stream_reader(page_stream_reader_result.release());
 
   // Read schema
   FailureOr<TupleSchema> schema = ReadSchema(page_stream_reader.get());
@@ -197,7 +199,6 @@ FailureOrOwned<Cursor>
                  allocator);
   PROPAGATE_ON_FAILURE(page_reader_result);
   std::unique_ptr<Cursor> page_reader(page_reader_result.release());
-
 
   return Success(new StorageScanCursor(schema.get(), std::move(page_reader)));
 }

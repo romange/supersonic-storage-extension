@@ -13,28 +13,22 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef SUPERSONIC_CONTRIB_STORAGE_CORE_STORAGE_SCAN_H_
-#define SUPERSONIC_CONTRIB_STORAGE_CORE_STORAGE_SCAN_H_
+#ifndef SUPERSONIC_CONTRIB_STORAGE_CORE_MERGING_PAGE_STREAM_WRITER_H_
+#define SUPERSONIC_CONTRIB_STORAGE_CORE_MERGING_PAGE_STREAM_WRITER_H_
 
 #include <memory>
 
 #include "supersonic/base/exception/result.h"
-#include "supersonic/base/memory/memory.h"
-#include "supersonic/cursor/base/operation.h"
-#include "supersonic/contrib/storage/base/storage.h"
+#include "supersonic/base/infrastructure/tuple_schema.h"
+#include "supersonic/contrib/storage/base/page_stream_writer.h"
+#include "supersonic/contrib/storage/core/file_storage.h"
 
 namespace supersonic {
 
-// Creates a Cursor which reads data from given storage. Takes ownership over
-// storage.
-FailureOrOwned<Cursor> StorageScan(std::unique_ptr<ReadableStorage> storage,
-                                   BufferAllocator* allocator);
+FailureOrOwned<PageStreamReader> CreateMergingPageStreamReader(
+    std::unique_ptr<SuperReadableStorage> storage);
 
-
-FailureOrOwned<Cursor>
-    SingleFileStorageScan(std::unique_ptr<SuperReadableStorage> storage,
-                          BufferAllocator* allocator);
 
 }  // namespace supersonic
 
-#endif  // SUPERSONIC_CONTRIB_STORAGE_CORE_STORAGE_SCAN_H_
+#endif  // SUPERSONIC_CONTRIB_STORAGE_CORE_MERGING_PAGE_STREAM_WRITER_H_

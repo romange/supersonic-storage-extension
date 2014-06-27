@@ -58,6 +58,22 @@ class ReadableStorage {
       const std::string& name) = 0;
 };
 
+class SuperWritableStorage {
+ public:
+  virtual ~SuperWritableStorage() {}
+
+  virtual FailureOrOwned<PageStreamWriter> NextPageStreamWriter() = 0;
+};
+
+class SuperReadableStorage {
+ public:
+  virtual ~SuperReadableStorage() {}
+
+  virtual FailureOrOwned<PageStreamReader> NextPageStreamReader() = 0;
+
+  virtual bool HasNext() = 0;
+};
+
 }  // namespace supersonic
 
 #endif  // SUPERSONIC_CONTRIB_STORAGE_BASE_STORAGE_H_

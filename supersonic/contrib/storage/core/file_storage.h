@@ -93,6 +93,8 @@ class WritableFileStorage : public WritableStorage {
                        BufferAllocator* allocator)
       : file_streams_provider_(path, allocator) {}
 
+  virtual ~WritableFileStorage() {}
+
   virtual FailureOrOwned<PageStreamWriter> CreatePageStreamWriter(
       const std::string& name) {
     FailureOrOwned<File> file = OpenFileForWriting(name);
@@ -426,6 +428,76 @@ class ReadableFileStorage : public ReadableStorage {
   DISALLOW_COPY_AND_ASSIGN(ReadableFileStorage);
 };
 
+// Generator for series of file names.
+class FileNameGenerator {
+ public:
+  FileNameGenerator(const std::string& name)
+      : name_(name),
+        chunk_(0) {}
+
+  std::string NextFileName() {
+    std::stringstream ss;
+    ss << name_ << "." << chunk_++;
+    return ss.str();
+  }
+
+ private:
+  const std::string name_;
+  size_t chunk_;
+  DISALLOW_COPY_AND_ASSIGN(FileNameGenerator);
+};
+
+
+class SuperWritableFileStorage : public SuperWritableStorage {
+ public:
+  SuperWritableFileStorage(std::string name,
+                           std::unique_ptr<WritableStorage> storage)
+      : file_name_generator_(name),
+        storage_(std::move(storage)) {}
+
+  virtual ~SuperWritableFileStorage() {}
+
+  FailureOrOwned<PageStreamWriter> NextPageStreamWriter() {
+    return storage_->CreatePageStreamWriter(
+        file_name_generator_.NextFileName());
+  }
+
+ private:
+  FileNameGenerator file_name_generator_;
+  std::unique_ptr<WritableStorage> storage_;
+};
+
+template <class FileT>
+class SuperReadableFileStorage : public SuperReadableStorage {
+ public:
+  SuperReadableFileStorage(std::string name,
+                           std::unique_ptr<ReadableStorage> storage)
+      : file_name_generator_(name),
+        storage_(std::move(storage)),
+        next_name_(file_name_generator_.NextFileName()),
+        storage_name_(name) {}
+
+  virtual ~SuperReadableFileStorage() {}
+
+  FailureOrOwned<PageStreamReader> NextPageStreamReader() {
+    FailureOrOwned<PageStreamReader> result =
+        storage_->CreatePageStreamReader(next_name_);
+    next_name_ = file_name_generator_.NextFileName();
+    return result;
+  }
+
+  bool HasNext() {
+    return FileT::Exists(FileT::JoinPath(storage_name_, next_name_));
+  }
+
+ private:
+  FileNameGenerator file_name_generator_;
+  std::unique_ptr<ReadableStorage> storage_;
+  std::string next_name_;
+  std::string storage_name_;
+};
+
+
 }  // namespace
 
 
@@ -467,6 +539,36 @@ FailureOrOwned<ReadableStorage>
         ERROR_GENERAL_IO_ERROR,
         StringPrintf("Directory '%s' does not exist.", path.c_str())));
   }
+}
+
+
+template<class FileT, class PathUtilT>
+FailureOrOwned<SuperWritableStorage>
+    CreateSuperWritableFileStorage(const std::string& name,
+                                   BufferAllocator* allocator) {
+  FailureOrOwned<WritableStorage> writable_storage_result =
+      CreateWritableFileStorage<FileT, PathUtilT>(name, allocator);
+  PROPAGATE_ON_FAILURE(writable_storage_result);
+  std::unique_ptr<WritableStorage>
+      writable_storage(writable_storage_result.release());
+
+  return Success(
+      new SuperWritableFileStorage(name, std::move(writable_storage)));
+}
+
+
+template<class FileT, class PathUtilT>
+FailureOrOwned<SuperReadableStorage>
+    CreateSuperReadableFileStorage(const std::string& name,
+                                   BufferAllocator* allocator) {
+  FailureOrOwned<ReadableStorage> readable_storage_result =
+      CreateReadableFileStorage<FileT, PathUtilT>(name, allocator);
+  PROPAGATE_ON_FAILURE(readable_storage_result);
+  std::unique_ptr<ReadableStorage>
+      writable_storage(readable_storage_result.release());
+
+  return Success(
+      new SuperReadableFileStorage<FileT>(name, std::move(writable_storage)));
 }
 
 }  // namespace supersonic

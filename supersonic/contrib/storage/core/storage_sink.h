@@ -37,7 +37,7 @@ FailureOrOwned<Sink> CreateStorageSink(
 
 FailureOrOwned<Sink> CreateSingleFileStorageSink(
     const TupleSchema& schema,
-    std::unique_ptr<WritableStorage> storage,
+    std::unique_ptr<SuperWritableStorage> storage,
     BufferAllocator* buffer_allocator);
 
 }  // namespace supersonic

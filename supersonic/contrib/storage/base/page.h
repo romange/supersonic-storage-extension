@@ -67,6 +67,9 @@ class Page {
 
   // Returns a pointer to raw in-memory page representation.
   virtual const void* RawData() const = 0;
+
+  // Returns true when page is empty (has 0 byte buffers).
+  virtual bool IsEmpty() const = 0;
 };
 
 // Creates Page object from buffer containing raw data. Takes ownership over

@@ -29,7 +29,6 @@ namespace supersonic {
 typedef std::vector<struct ByteBufferHeader> ByteBufferHeaderVector;
 typedef std::vector<const void*> ByteBufferVector;
 
-
 // Represents a Page which does not own the data buffer.
 class PageView : public Page {
  public:
@@ -67,6 +66,10 @@ class PageView : public Page {
 
   const void* RawData() const {
     return buffer_.data();
+  }
+
+  bool IsEmpty() const {
+    return PageHeader().byte_buffers_count == 0;
   }
 
  private:

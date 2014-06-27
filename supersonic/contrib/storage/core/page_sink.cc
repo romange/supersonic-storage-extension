@@ -34,7 +34,7 @@ using common::Success;
 
 namespace supersonic {
 
-const uint64_t kPageSizeLimit = 1024 * 1024;  // 1MB
+const uint64_t kPageSizeLimit = 100 * 1024;  // 100KB
 
 class PageSink : public Sink {
  public:
