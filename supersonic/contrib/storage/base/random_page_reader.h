@@ -13,25 +13,30 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef SUPERSONIC_CONTRIB_STORAGE_CORE_SLICING_PAGE_STREAM_WRITER_H_
-#define SUPERSONIC_CONTRIB_STORAGE_CORE_SLICING_PAGE_STREAM_WRITER_H_
+#ifndef SUPERSONIC_CONTRIB_STORAGE_BASE_RANDOM_PAGE_READER_H_
+#define SUPERSONIC_CONTRIB_STORAGE_BASE_RANDOM_PAGE_READER_H_
 
-#include <memory>
-
+#include "supersonic/contrib/storage/base/page.h"
 #include "supersonic/base/exception/result.h"
-#include "supersonic/base/infrastructure/tuple_schema.h"
-#include "supersonic/contrib/storage/base/page_stream_writer.h"
-#include "supersonic/contrib/storage/core/file_storage.h"
 
 namespace supersonic {
 
-// Creates a PageStreamWriter which slices output into multiple files.
-FailureOrOwned<PageStreamWriter> CreateSlicingPageStreamWriter(
-    TupleSchema tuple_schema,
-    std::unique_ptr<WritableStorage> storage,
-    BufferAllocator* buffer_allocators);
+// Basic interface for classes providing random access to pages, e.g. in
+// storage.
+class RandomPageReader {
+ public:
+  virtual ~RandomPageReader() {}
 
+  // Gets page located under given offset.
+  virtual FailureOr<const Page*> GetPage(int offset) = 0;
+
+  // Returns the number of available pages.
+  virtual uint64_t TotalPages() = 0;
+
+  // Finalizes the reader. Must be called before instance destruction.
+  virtual FailureOrVoid Finalize() = 0;
+};
 
 }  // namespace supersonic
 
-#endif  // SUPERSONIC_CONTRIB_STORAGE_CORE_SLICING_PAGE_STREAM_WRITER_H_
+#endif  // SUPERSONIC_CONTRIB_STORAGE_BASE_RANDOM_PAGE_READER_H_

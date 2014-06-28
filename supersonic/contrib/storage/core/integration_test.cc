@@ -38,6 +38,8 @@ class IntegrationTest : public ::testing::Test {
     // NOTE: Not thread-safe.
     storage_path_ = testing::internal::FilePath::GenerateUniqueFileName(
         directory, basename, "test-storage").ToString();
+    ASSERT_TRUE(
+        PathUtil::MkDir(storage_path_, S_IRWXU, true /* with parents */));
 
     schema_ = CreateSchema();
     pieces_.reset(new std::vector<StringPiece>());
@@ -74,98 +76,64 @@ class IntegrationTest : public ::testing::Test {
   }
 };
 
+
 TEST_F(IntegrationTest, FullFlow) {
   BufferAllocator* allocator = HeapBufferAllocator::Get();
 
+  std::string file_path = File::JoinPath(storage_path_, "test");
+
+  std::unique_ptr<FileSeries> output_file_series =
+      EnumeratedFileSeries(file_path);
   FailureOrOwned<WritableStorage> writable_storage_result =
-      CreateWritableFileStorage<File, PathUtil>(storage_path_, allocator);
+        CreateWritableFileStorage<File, PathUtil>(std::move(output_file_series),
+                                                  allocator);
   ASSERT_TRUE(writable_storage_result.is_success());
   std::unique_ptr<WritableStorage>
       writable_storage(writable_storage_result.release());
 
   FailureOrOwned<Sink> storage_sink_result =
-      CreateStorageSink(schema_, std::move(writable_storage), allocator);
+      CreateFileStorageSink(schema_,
+                            std::move(writable_storage),
+                            allocator);
   ASSERT_TRUE(storage_sink_result.is_success());
   std::unique_ptr<Sink> storage_sink(storage_sink_result.release());
 
+
   int seeds[] = { 124, -543, 8656, -74512, 23412, 13412, 412 };
   Generator generator(schema_, seeds, pieces_);
-  for (int i = 0; i < 3; i++) {
-    const View& view = generator.Generate(10000);
+  size_t written = 0;
+  for (int i = 0; i < 100; i++) {
+    const View& view = generator.Generate(1000);
     ASSERT_TRUE(storage_sink->Write(view).is_success());
+    written += 1000;
   }
   storage_sink->Finalize();
 
+
+  std::unique_ptr<FileSeries> input_file_series =
+      EnumeratedFileSeries(file_path);
   FailureOrOwned<ReadableStorage> readable_storage_result =
-      CreateReadableFileStorage<File, PathUtil>(storage_path_, allocator);
+      CreateReadableFileStorage<File, PathUtil>(std::move(input_file_series),
+                                                allocator);
   ASSERT_TRUE(readable_storage_result.is_success());
   std::unique_ptr<ReadableStorage>
       readable_storage(readable_storage_result.release());
 
   FailureOrOwned<Cursor> storage_scan_result =
-      StorageScan(std::move(readable_storage), allocator);
+      FileStorageScan(std::move(readable_storage), allocator);
   ASSERT_TRUE(storage_scan_result.is_success());
   std::unique_ptr<Cursor> storage_scan(storage_scan_result.release());
 
   std::unique_ptr<Validator> validator = generator.CreateValidator();
-  while (true) {
+  while (written > 0) {
     ResultView result_view = storage_scan->Next(20000);
-    if (result_view.is_eos()) {
-      break;
-    }
-
     ASSERT_TRUE(result_view.has_data());
     validator->Validate(result_view.view());
+    written -= result_view.view().row_count();
   }
-}
 
-TEST_F(IntegrationTest, SingleFile) {
-  BufferAllocator* allocator = HeapBufferAllocator::Get();
-
-  FailureOrOwned<SuperWritableStorage> writable_storage_result =
-        CreateSuperWritableFileStorage<File, PathUtil>(storage_path_, allocator);
-  ASSERT_TRUE(writable_storage_result.is_success());
-  std::unique_ptr<SuperWritableStorage>
-      writable_storage(writable_storage_result.release());
-
-  FailureOrOwned<Sink> storage_sink_result =
-      CreateSingleFileStorageSink(schema_,
-                                  std::move(writable_storage),
-                                  allocator);
-  ASSERT_TRUE(storage_sink_result.is_success());
-  std::unique_ptr<Sink> storage_sink(storage_sink_result.release());
-
-
-  int seeds[] = { 124, -543, 8656, -74512, 23412, 13412, 412 };
-  Generator generator(schema_, seeds, pieces_);
-  for (int i = 0; i < 100; i++) {
-    const View& view = generator.Generate(1000);
-    ASSERT_TRUE(storage_sink->Write(view).is_success());
-  }
-  storage_sink->Finalize();
-
-  FailureOrOwned<SuperReadableStorage> readable_storage_result =
-      CreateSuperReadableFileStorage<File, PathUtil>(storage_path_, allocator);
-  ASSERT_TRUE(readable_storage_result.is_success());
-  std::unique_ptr<SuperReadableStorage>
-      readable_storage(readable_storage_result.release());
-
-  FailureOrOwned<Cursor> storage_scan_result =
-      SingleFileStorageScan(std::move(readable_storage), allocator);
-  ASSERT_TRUE(storage_scan_result.is_success());
-  std::unique_ptr<Cursor> storage_scan(storage_scan_result.release());
-
-
-  std::unique_ptr<Validator> validator = generator.CreateValidator();
-  while (true) {
-    ResultView result_view = storage_scan->Next(20000);
-    if (result_view.is_eos()) {
-      break;
-    }
-
-    ASSERT_TRUE(result_view.has_data());
-    validator->Validate(result_view.view());
-  }
+  ResultView result_view = storage_scan->Next(20000);
+  ASSERT_TRUE(result_view.is_eos());
 }
 
 }  // namespace

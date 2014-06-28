@@ -13,25 +13,30 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef SUPERSONIC_CONTRIB_STORAGE_CORE_SLICING_PAGE_STREAM_WRITER_H_
-#define SUPERSONIC_CONTRIB_STORAGE_CORE_SLICING_PAGE_STREAM_WRITER_H_
+#ifndef SUPERSONIC_CONTRIB_STORAGE_CORE_FILE_SERIES_H_
+#define SUPERSONIC_CONTRIB_STORAGE_CORE_FILE_SERIES_H_
 
+#include <string>
 #include <memory>
-
-#include "supersonic/base/exception/result.h"
-#include "supersonic/base/infrastructure/tuple_schema.h"
-#include "supersonic/contrib/storage/base/page_stream_writer.h"
-#include "supersonic/contrib/storage/core/file_storage.h"
 
 namespace supersonic {
 
-// Creates a PageStreamWriter which slices output into multiple files.
-FailureOrOwned<PageStreamWriter> CreateSlicingPageStreamWriter(
-    TupleSchema tuple_schema,
-    std::unique_ptr<WritableStorage> storage,
-    BufferAllocator* buffer_allocators);
+// Base interface for generators of names for file series.
+class FileSeries {
+ public:
+  virtual ~FileSeries() {}
 
+  // Returns next name in file series.
+  virtual std::string NextFileName() = 0;
+};
+
+// An enumerated series of file names, with number as a suffix.
+// For example, for base name "data" it will produces "data.0", "data.1",
+// "data.2" etc.
+std::unique_ptr<FileSeries>
+    EnumeratedFileSeries(const std::string& base_name);
 
 }  // namespace supersonic
 
-#endif  // SUPERSONIC_CONTRIB_STORAGE_CORE_SLICING_PAGE_STREAM_WRITER_H_
+
+#endif  // SUPERSONIC_CONTRIB_STORAGE_CORE_FILE_SERIES_H_

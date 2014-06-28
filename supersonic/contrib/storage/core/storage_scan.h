@@ -27,13 +27,9 @@ namespace supersonic {
 
 // Creates a Cursor which reads data from given storage. Takes ownership over
 // storage.
-FailureOrOwned<Cursor> StorageScan(std::unique_ptr<ReadableStorage> storage,
-                                   BufferAllocator* allocator);
-
-
 FailureOrOwned<Cursor>
-    SingleFileStorageScan(std::unique_ptr<SuperReadableStorage> storage,
-                          BufferAllocator* allocator);
+    FileStorageScan(std::unique_ptr<ReadableStorage> storage,
+                    BufferAllocator* allocator);
 
 }  // namespace supersonic
 

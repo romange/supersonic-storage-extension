@@ -13,8 +13,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef SUPERSONIC_CONTRIB_STORAGE_CORE_MERGING_PAGE_STREAM_WRITER_H_
-#define SUPERSONIC_CONTRIB_STORAGE_CORE_MERGING_PAGE_STREAM_WRITER_H_
+#ifndef SUPERSONIC_CONTRIB_STORAGE_CORE_MERGING_PAGE_STREAM_READER_H_
+#define SUPERSONIC_CONTRIB_STORAGE_CORE_MERGING_PAGE_STREAM_READER_H_
 
 #include <memory>
 
@@ -25,10 +25,12 @@
 
 namespace supersonic {
 
+// Creates a PageStreamReader which merges input from series of inputs obtained
+// from ReadableStorage.
 FailureOrOwned<PageStreamReader> CreateMergingPageStreamReader(
-    std::unique_ptr<SuperReadableStorage> storage);
+    std::unique_ptr<ReadableStorage> storage);
 
 
 }  // namespace supersonic
 
-#endif  // SUPERSONIC_CONTRIB_STORAGE_CORE_MERGING_PAGE_STREAM_WRITER_H_
+#endif  // SUPERSONIC_CONTRIB_STORAGE_CORE_MERGING_PAGE_STREAM_READER_H_

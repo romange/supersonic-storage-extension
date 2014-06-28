@@ -13,9 +13,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 //
-// Contains basic interfaces for persistent storage. The storage is a stream,
-// which can be either writable or readable, but not both at once.
-// The storage provides access to named streams via reader / writer objects.
+// Storage is represented by series of page readers / writers. Those can be used
+// to split storage into logical chunks. E.g. in case of file storage - each
+// of them may represent a single file. Each of those "chunks" should be usable
+// as a storage on its own.
 
 #ifndef SUPERSONIC_CONTRIB_STORAGE_BASE_STORAGE_H_
 #define SUPERSONIC_CONTRIB_STORAGE_BASE_STORAGE_H_
@@ -27,6 +28,7 @@
 #include "supersonic/contrib/storage/base/byte_stream_writer.h"
 #include "supersonic/contrib/storage/base/page_stream_reader.h"
 #include "supersonic/contrib/storage/base/page_stream_writer.h"
+#include "supersonic/contrib/storage/base/random_page_reader.h"
 
 namespace supersonic {
 
@@ -35,13 +37,8 @@ class WritableStorage {
  public:
   virtual ~WritableStorage() {}
 
-  // Creates a PageStreamWriter with a given name.
-  virtual FailureOrOwned<PageStreamWriter> CreatePageStreamWriter(
-      const std::string& name) = 0;
-
-  // Creates a ByteStreamWriter with a given name.
-  virtual FailureOrOwned<ByteStreamWriter> CreateByteStreamWriter(
-      const std::string& name) = 0;
+  // Returns next PageStreamWriter for given storage.
+  virtual FailureOrOwned<PageStreamWriter> NextPageStreamWriter() = 0;
 };
 
 // Base interface for readable persistent storage.
@@ -49,27 +46,8 @@ class ReadableStorage {
  public:
   virtual ~ReadableStorage() {}
 
-  // Creates a PageStreamReader for a given name.
-  virtual FailureOrOwned<PageStreamReader> CreatePageStreamReader(
-      const std::string& name) = 0;
-
-  // Creates a ByteStreamReader for a given name.
-  virtual FailureOrOwned<ByteStreamReader> CreateByteStreamReader(
-      const std::string& name) = 0;
-};
-
-class SuperWritableStorage {
- public:
-  virtual ~SuperWritableStorage() {}
-
-  virtual FailureOrOwned<PageStreamWriter> NextPageStreamWriter() = 0;
-};
-
-class SuperReadableStorage {
- public:
-  virtual ~SuperReadableStorage() {}
-
-  virtual FailureOrOwned<PageStreamReader> NextPageStreamReader() = 0;
+  // Returns next RandomPageReader for given storage.
+  virtual FailureOrOwned<RandomPageReader> NextRandomPageReader() = 0;
 
   virtual bool HasNext() = 0;
 };

@@ -52,8 +52,8 @@ class OwningDeserializer : public Deserializer {
   DISALLOW_COPY_AND_ASSIGN(OwningDeserializer);
 };
 
-// Deserializer for common numeric types, like INT32 or DOUBLE. Simply copies the
-// data into output buffer.
+// Deserializer for common numeric types, like INT32 or DOUBLE. Simply copies
+// the data into output buffer.
 // TODO(wzoltak): Handle different byte-SEXes?
 template <DataType T>
 class NumericDataTypeDeserializer : public Deserializer {

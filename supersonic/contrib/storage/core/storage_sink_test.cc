@@ -36,14 +36,8 @@
 
 namespace supersonic {
 
-FailureOrVoid DumpSchema(
-    const TupleSchema& schema,
-    WritableStorage* storage,
-    BufferAllocator* buffer_allocator);
-
 FailureOrOwned<Sink> CreateStorageSink(
-    std::unique_ptr<std::vector<std::unique_ptr<Sink> > > page_sinks,
-    std::unique_ptr<WritableStorage> storage);
+    std::unique_ptr<std::vector<std::unique_ptr<Sink> > > page_sinks);
 
 namespace {
 
@@ -64,28 +58,16 @@ class MockPageSink : public Sink {
   }
 };
 
+
 class MockStorage : public WritableStorage {
  public:
-  MOCK_METHOD1(CreatePageStreamWriter,
-               FailureOrOwned<PageStreamWriter>(const std::string& name));
+  MOCK_METHOD0(NextPageStreamWriter, FailureOrOwned<PageStreamWriter>());
   MOCK_METHOD1(CreatePageStreamReader,
                  FailureOrOwned<PageStreamReader>(const std::string& name));
-  MOCK_METHOD1(CreateByteStreamWriter,
-               FailureOrOwned<ByteStreamWriter>(const std::string& name));
   MOCK_METHOD1(CreateByteStreamReader,
                  FailureOrOwned<ByteStreamReader>(const std::string& name));
 };
 
-class MockByteStreamWriter : public ByteStreamWriter {
- public:
-  MOCK_METHOD2(AppendBytes, FailureOrVoid(const void* buffer, size_t length));
-  MOCK_METHOD0(Finalize, FailureOrVoid());
-
-  MockByteStreamWriter* ExpectingFinalize() {
-    EXPECT_CALL(*this, Finalize()).WillOnce(::testing::Return(Success()));
-    return this;
-  }
-};
 
 class StorageSinkTest : public ::testing::Test {
  protected:
@@ -104,32 +86,11 @@ class StorageSinkTest : public ::testing::Test {
   }
 };
 
+
 MATCHER_P2(EqualsBuffer, buffer, length, "") {
   return memcmp(arg, buffer, length) == 0;
 }
 
-TEST_F(StorageSinkTest, WritesMetadata) {
-  std::unique_ptr<MockStorage> storage(new MockStorage());
-  std::unique_ptr<MockByteStreamWriter>
-      byte_stream((new MockByteStreamWriter())->ExpectingFinalize());
-
-  TupleSchema tuple_schema = CreateTupleSchema();
-  FailureOrOwned<SchemaProto> schema_proto_result =
-      SchemaConverter::TupleSchemaToSchemaProto(tuple_schema);
-  ASSERT_TRUE(schema_proto_result.is_success());
-  std::unique_ptr<SchemaProto> schema_proto(schema_proto_result.release());
-  std::string serialized_schema = Serialize(*schema_proto);
-
-  EXPECT_CALL(*byte_stream, AppendBytes(
-      EqualsBuffer(serialized_schema.c_str(), serialized_schema.length()),
-      serialized_schema.length()))
-          .WillOnce(::testing::Return(Success()));
-  EXPECT_CALL(*storage, CreateByteStreamWriter(::testing::_))
-            .WillOnce(::testing::Return(Success(byte_stream.release())));
-
-  ASSERT_TRUE(DumpSchema(tuple_schema, storage.get(),
-                         HeapBufferAllocator::Get()).is_success());
-}
 
 TEST_F(StorageSinkTest, WritingToFinalizedThrows) {
   std::unique_ptr<std::vector<std::unique_ptr<Sink> > > page_sinks(
@@ -139,7 +100,7 @@ TEST_F(StorageSinkTest, WritingToFinalizedThrows) {
   Table table(schema, HeapBufferAllocator::Get());
 
   FailureOrOwned<Sink> storage_sink_result =
-      CreateStorageSink(std::move(page_sinks), std::move(storage));
+      CreateStorageSink(std::move(page_sinks));
   ASSERT_TRUE(storage_sink_result.is_success());
   std::unique_ptr<Sink> storage_sink(storage_sink_result.release());
 
@@ -157,7 +118,7 @@ TEST_F(StorageSinkTest, FinalizesAffectsPageSinks) {
   TupleSchema schema = CreateTupleSchema();
 
   FailureOrOwned<Sink> storage_sink_result =
-      CreateStorageSink(std::move(page_sinks), std::move(storage));
+      CreateStorageSink(std::move(page_sinks));
   ASSERT_TRUE(storage_sink_result.is_success());
   std::unique_ptr<Sink> storage_sink(storage_sink_result.release());
 
@@ -177,7 +138,7 @@ TEST_F(StorageSinkTest, DataIsPassedToPageSinks) {
   std::unique_ptr<WritableStorage> storage(new MockStorage());
 
   FailureOrOwned<Sink> storage_sink_result =
-      CreateStorageSink(std::move(page_sinks), std::move(storage));
+      CreateStorageSink(std::move(page_sinks));
   ASSERT_TRUE(storage_sink_result.is_success());
   std::unique_ptr<Sink> storage_sink(storage_sink_result.release());
 

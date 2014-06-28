@@ -1,3 +1,18 @@
+// Copyright 2014 Google Inc.  All Rights Reserved
+// Author: Wojtek Żółtak (wojciech.zoltak@gmail.com)
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 #include "supersonic/contrib/storage/core/slicing_page_stream_writer.h"
 
 #include <google/protobuf/text_format.h>
@@ -6,18 +21,19 @@
 #include "supersonic/base/exception/exception_macros.h"
 #include "supersonic/base/infrastructure/tuple_schema.h"
 #include "supersonic/contrib/storage/base/storage.h"
+#include "supersonic/contrib/storage/core/schema_serialization.h"
 #include "supersonic/contrib/storage/util/schema_converter.h"
 
 
 namespace supersonic {
 namespace {
 
-const size_t kMaxFileSize = 1024 * 1024; // 1MB
+const size_t kMaxFileSize = 1024 * 1024;  // 1MB
 
 class SlicingPageStreamWriter : public PageStreamWriter {
  public:
   SlicingPageStreamWriter(std::unique_ptr<Page> schema_page,
-                          std::unique_ptr<SuperWritableStorage> storage)
+                          std::unique_ptr<WritableStorage> storage)
      : schema_page_(std::move(schema_page)),
        storage_(std::move(storage)),
        written_(0),
@@ -42,9 +58,9 @@ class SlicingPageStreamWriter : public PageStreamWriter {
   }
 
   FailureOrVoid Finalize() {
-    // TODO(wzoltak): do not set on error?
+    PROPAGATE_ON_FAILURE(page_stream_->Finalize());
     finalized_ = true;
-    return page_stream_->Finalize();
+    return Success();
   }
 
  private:
@@ -72,37 +88,19 @@ class SlicingPageStreamWriter : public PageStreamWriter {
   }
 
   std::unique_ptr<Page> schema_page_;
-  std::unique_ptr<SuperWritableStorage> storage_;
+  std::unique_ptr<WritableStorage> storage_;
   std::unique_ptr<PageStreamWriter> page_stream_;
   size_t written_;
   bool finalized_;
   DISALLOW_COPY_AND_ASSIGN(SlicingPageStreamWriter);
 };
 
-FailureOrOwned<Page> CreateSchemaPage(
-    const TupleSchema& schema,
-    BufferAllocator* allocator) {
-  PageBuilder page_builder(1, allocator);
-
-  std::string serialized_schema;
-  FailureOrOwned<SchemaProto> schema_proto_result =
-      SchemaConverter::TupleSchemaToSchemaProto(schema);
-  PROPAGATE_ON_FAILURE(schema_proto_result);
-  ::google::protobuf::TextFormat::PrintToString(*schema_proto_result,
-                                                &serialized_schema);
-
-  page_builder.AppendToByteBuffer(0,
-                                  serialized_schema.c_str(),
-                                  serialized_schema.length());
-
-  return page_builder.CreatePage();
-}
-
 }  // namespace
+
 
 FailureOrOwned<PageStreamWriter> CreateSlicingPageStreamWriter(
     TupleSchema schema,
-    std::unique_ptr<SuperWritableStorage> storage,
+    std::unique_ptr<WritableStorage> storage,
     BufferAllocator* allocator) {
   FailureOrOwned<Page> schema_page_result =
       CreateSchemaPage(schema, allocator);

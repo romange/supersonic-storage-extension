@@ -89,6 +89,9 @@ class File {
   // extend the file. Use Append() to extend the file.
   virtual bool Seek(int64 position) ABSTRACT;
 
+  // Returns the size of file in bytes, -1 on error.
+  virtual int64 Size() ABSTRACT;
+
   // If we're currently at eof.
   virtual bool eof() ABSTRACT;
 

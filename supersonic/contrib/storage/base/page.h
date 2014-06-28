@@ -70,6 +70,10 @@ class Page {
 
   // Returns true when page is empty (has 0 byte buffers).
   virtual bool IsEmpty() const = 0;
+
+  // Returns an empty page. May be used e.g. as an indicator of EOS in page
+  // streams.
+  static const Page* EmptyPage();
 };
 
 // Creates Page object from buffer containing raw data. Takes ownership over

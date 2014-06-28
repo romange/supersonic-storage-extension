@@ -15,26 +15,20 @@
 
 #include "supersonic/contrib/storage/core/storage_scan.h"
 
-#include <google/protobuf/io/zero_copy_stream_impl_lite.h>
-#include <google/protobuf/text_format.h>
-#include <supersonic/contrib/storage/core/page_reader.h>
-
 #include <memory>
 #include <string>
 #include <vector>
-
-#include "merging_page_stream_reader.h"
 
 #include "supersonic/base/exception/exception.h"
 #include "supersonic/base/exception/result.h"
 #include "supersonic/base/infrastructure/projector.h"
 #include "supersonic/base/memory/memory.h"
 #include "supersonic/contrib/storage/base/storage.h"
-#include "supersonic/contrib/storage/util/schema_converter.h"
+#include "supersonic/contrib/storage/core/merging_page_stream_reader.h"
+#include "supersonic/contrib/storage/core/page_reader.h"
+#include "supersonic/contrib/storage/core/schema_serialization.h"
 #include "supersonic/cursor/base/operation.h"
-#include "supersonic/cursor/core/coalesce.h"
 #include "supersonic/cursor/infrastructure/basic_cursor.h"
-#include "supersonic/cursor/infrastructure/basic_operation.h"
 
 
 namespace supersonic {
@@ -69,118 +63,9 @@ class StorageScanCursor : public BasicCursor {
 
 }  // namespace
 
-// TODO(wzoltak): comment
-FailureOr<TupleSchema> ReadSchema(
-    ReadableStorage* storage,
-    BufferAllocator* buffer_allocator) {
-  FailureOrOwned<ByteStreamReader> schema_stream_result =
-      storage->CreateByteStreamReader(kSchemaStreamName);
-  PROPAGATE_ON_FAILURE(schema_stream_result);
-  std::unique_ptr<ByteStreamReader>
-      schema_stream(schema_stream_result.release());
-
-  const size_t kInitialSchemaBlockSize = 4096;
-  std::unique_ptr<Buffer> buffer(
-      buffer_allocator->Allocate(kInitialSchemaBlockSize));
-  if (!buffer.get()) {
-    THROW(new Exception(ERROR_MEMORY_EXCEEDED,
-                        "Couldn't allocate block for storage schema."));
-  }
-
-  size_t buffer_capacity(kInitialSchemaBlockSize);
-  size_t bytes_read = 0;
-  int64_t read_last_time;
-  do {
-    uint8_t* destination = static_cast<uint8_t*>(buffer->data()) + bytes_read;
-    FailureOr<int64_t> bytes_read_result =
-        schema_stream->ReadBytes(destination, buffer_capacity - bytes_read);
-    PROPAGATE_ON_FAILURE(bytes_read_result);
-    read_last_time = bytes_read_result.get();
-
-    bytes_read += read_last_time;
-    if (buffer_capacity - bytes_read == 0) {
-      buffer_capacity *= 2;
-      if (buffer_allocator->Reallocate(buffer_capacity, buffer.get())) {
-        THROW(new Exception(ERROR_MEMORY_EXCEEDED,
-                            "Couldn't allocate block for storage schema."));
-      }
-    }
-  } while (read_last_time > 0);
-
-  SchemaProto schema_proto;
-  ::google::protobuf::io::ArrayInputStream
-      array_input_stream(buffer->data(), bytes_read);
-  ::google::protobuf::TextFormat::Parse(&array_input_stream, &schema_proto);
-
-  FailureOr<TupleSchema> tuple_schema_result =
-     SchemaConverter::SchemaProtoToTupleSchema(schema_proto);
-  PROPAGATE_ON_FAILURE(tuple_schema_result);
-
-  PROPAGATE_ON_FAILURE(schema_stream->Finalize());
-  return Success(tuple_schema_result.get());
-}
-
-FailureOr<TupleSchema> ReadSchema(PageStreamReader* page_stream_reader) {
-  FailureOr<const Page*> page_result = page_stream_reader->NextPage();
-  PROPAGATE_ON_FAILURE(page_result);
-  const Page* page = page_result.get();
-
-  FailureOr<const ByteBufferHeader*> byte_buffer_header =
-      page->ByteBufferHeader(0);
-  PROPAGATE_ON_FAILURE(byte_buffer_header);
-
-  FailureOr<const void*> byte_buffer = page->ByteBuffer(0);
-  PROPAGATE_ON_FAILURE(byte_buffer);
-
-  SchemaProto schema_proto;
-  ::google::protobuf::io::ArrayInputStream
-      array_input_stream(byte_buffer.get(),
-                         byte_buffer_header.get()->length);
-  ::google::protobuf::TextFormat::Parse(&array_input_stream, &schema_proto);
-
-  FailureOr<TupleSchema> tuple_schema_result =
-     SchemaConverter::SchemaProtoToTupleSchema(schema_proto);
-  PROPAGATE_ON_FAILURE(tuple_schema_result);
-
-  return Success(tuple_schema_result.get());
-}
-
-FailureOrOwned<Cursor> StorageScan(std::unique_ptr<ReadableStorage> storage,
-                                   BufferAllocator* allocator) {
-  FailureOr<TupleSchema> schema_result = ReadSchema(storage.get(), allocator);
-  PROPAGATE_ON_FAILURE(schema_result);
-  TupleSchema schema = schema_result.get();
-
-  // Create PositionalJoin with PageReadersCursors as input.
-  std::vector<Cursor*> inputs;
-  for (size_t index = 0; index < schema.attribute_count(); index++) {
-    Attribute attribute = schema.attribute(index);
-
-    TupleSchema page_reader_schema;
-    page_reader_schema.add_attribute(attribute);
-
-    FailureOrOwned<PageStreamReader> page_stream_result =
-        storage->CreatePageStreamReader(
-            attribute.name() + kDataStreamExtension);
-    PROPAGATE_ON_FAILURE(page_stream_result);
-    std::unique_ptr<PageStreamReader> page_stream(page_stream_result.release());
-
-    FailureOrOwned<Cursor> page_reader = PageReader(page_reader_schema,
-                                                    std::move(page_stream),
-                                                    allocator);
-    PROPAGATE_ON_FAILURE(page_reader);
-    inputs.push_back(page_reader.release());
-  }
-
-  FailureOrOwned<Cursor> coalesce_result = BoundCoalesce(inputs);
-  PROPAGATE_ON_FAILURE(coalesce_result);
-  std::unique_ptr<Cursor> coalesce(coalesce_result.release());
-
-  return Success(new StorageScanCursor(schema, std::move(coalesce)));
-}
 
 FailureOrOwned<Cursor>
-    SingleFileStorageScan(std::unique_ptr<SuperReadableStorage> storage,
+    FileStorageScan(std::unique_ptr<ReadableStorage> storage,
                           BufferAllocator* allocator) {
   // Create PageStreamReader
   FailureOrOwned<PageStreamReader> page_stream_reader_result
@@ -190,9 +75,12 @@ FailureOrOwned<Cursor>
         page_stream_reader(page_stream_reader_result.release());
 
   // Read schema
-  FailureOr<TupleSchema> schema = ReadSchema(page_stream_reader.get());
+  FailureOr<const Page*> page_result = page_stream_reader->NextPage();
+  PROPAGATE_ON_FAILURE(page_result);
+  FailureOr<TupleSchema> schema = ReadSchemaPage(*page_result.get());
   PROPAGATE_ON_FAILURE(schema);
 
+  // Create PageReader
   FailureOrOwned<Cursor> page_reader_result =
       PageReader(schema.get(),
                  std::move(page_stream_reader),

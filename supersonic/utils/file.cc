@@ -76,6 +76,7 @@ class LocalFileImpl : public File {
   virtual char* ReadLine(char* buffer, uint64 max_length);
   virtual int64 Write(const void* buffer, uint64 length);
   virtual bool Seek(int64 position);
+  virtual int64 Size();
   virtual bool eof();
 
  protected:
@@ -267,6 +268,21 @@ bool LocalFileImpl::Seek(int64 position) {
     return false;
   }
   return true;
+}
+
+int64 LocalFileImpl::Size() {
+  struct stat tmp;
+  if (stat(create_file_name_.c_str(), &tmp) != 0) {
+    if (errno != ENOENT) {
+      // In case of an error (ENOENT only means a directory on
+      // create_file_name_'s has not been found - it will be created).
+      LOG(WARNING) << "Can't check length of" << create_file_name_
+                   << " because stat() failed "
+                   << "(errno = " << strerror(errno) << ").";
+      return -1;
+    }
+  }
+  return tmp.st_size;
 }
 
 bool LocalFileImpl::eof() {

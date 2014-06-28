@@ -28,16 +28,9 @@
 
 namespace supersonic {
 
-// Creates a Sink which allows writing data to persistent storage. Takes
-// ownership over storage.
-FailureOrOwned<Sink> CreateStorageSink(
+FailureOrOwned<Sink> CreateFileStorageSink(
     const TupleSchema& schema,
     std::unique_ptr<WritableStorage> storage,
-    BufferAllocator* buffer_allocator);
-
-FailureOrOwned<Sink> CreateSingleFileStorageSink(
-    const TupleSchema& schema,
-    std::unique_ptr<SuperWritableStorage> storage,
     BufferAllocator* buffer_allocator);
 
 }  // namespace supersonic

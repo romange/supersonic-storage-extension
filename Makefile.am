@@ -319,10 +319,11 @@ test_contrib_storage_core_SOURCES  = \
     supersonic/contrib/storage/base/column_reader_test.cc \
     supersonic/contrib/storage/base/column_reader.cc \
     supersonic/contrib/storage/util/schema_converter_test.cc \
-    supersonic/contrib/storage/core/storage_scan_test.cc \
+    supersonic/contrib/storage/core/schema_serialization_test.cc \
     supersonic/contrib/storage/core/page_reader_test.cc \
     supersonic/contrib/storage/core/integration_test.cc \
     supersonic/contrib/storage/core/data_type_deserializer.cc \
+    supersonic/contrib/storage/core/file_series.cc \
     supersonic/contrib/storage/core/slicing_page_stream_writer.cc \
     supersonic/contrib/storage/core/merging_page_stream_reader.cc \
     supersonic/contrib/storage/core/page_reader.cc \
@@ -330,6 +331,7 @@ test_contrib_storage_core_SOURCES  = \
     supersonic/contrib/storage/core/page_builder.cc \
     supersonic/contrib/storage/core/storage_sink.cc \
     supersonic/contrib/storage/core/page_sink.cc \
+    supersonic/contrib/storage/core/schema_serialization.cc \
     supersonic/contrib/storage/util/path_util.cc \
     supersonic/contrib/storage/base/column_writer.cc \
     supersonic/contrib/storage/core/data_type_serializer.cc \
