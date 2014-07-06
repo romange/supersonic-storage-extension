@@ -126,7 +126,7 @@ TEST_F(FileStorageTest, WriteThenRead) {
 
     for (int write = 0; write < writes; write++) {
       FailureOr<const Page*> read_page =
-          page_reader->GetPage(page->PageHeader().total_size * write);
+          page_reader->GetPage(write);
       ASSERT_TRUE(read_page.is_success());
       AssertEqualPages(*read_page.get(), *page);
     }

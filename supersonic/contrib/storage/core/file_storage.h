@@ -25,8 +25,11 @@
 #define SUPERSONIC_CONTRIB_STORAGE_CORE_FILE_STORAGE_H_
 
 #include <glog/logging.h>
+#include <google/protobuf/io/coded_stream.h>
+#include <google/protobuf/io/zero_copy_stream_impl_lite.h>
 #include <stdlib.h>
 #include <sys/stat.h>
+#include <map>
 #include <set>
 #include <string>
 
@@ -47,6 +50,7 @@ namespace supersonic {
 
 const size_t kInitialPageReaderBuffer = 1024 * 1024;  // 1MB
 
+const uint64_t kMagicStorageConstant = 1234565746523432454;
 
 // Opens file under given path with given mode.
 template<class FileT>
@@ -120,26 +124,73 @@ class FilePageStreamWriter : public PageStreamWriter {
  public:
   explicit FilePageStreamWriter(File* file)
       : byte_stream_(file),
+        written_bytes_(0),
         written_pages_(0) {}
 
   virtual FailureOrVoid AppendPage(const Page& page) {
+    // TODO(wzoltak): acutally, use that.
+    uint32_t family = 0;
+
     FailureOrVoid appended = byte_stream_.AppendBytes(page.RawData(),
         page.PageHeader().total_size);
     PROPAGATE_ON_FAILURE(appended);
+
+    // Note that [] operator creates empty (default constructor) value.
+    page_index_[family].emplace_back(written_bytes_);
+    written_bytes_ += page.PageHeader().total_size;
+
     written_pages_++;
     return Success();
   }
 
   virtual FailureOrVoid Finalize() {
-    PROPAGATE_ON_FAILURE(
-        byte_stream_.AppendBytes(&written_pages_, sizeof(uint64_t)));
-    FailureOrVoid finalized = byte_stream_.Finalize();
-    PROPAGATE_ON_FAILURE(finalized);
+    PROPAGATE_ON_FAILURE(WriteIndex());
+    PROPAGATE_ON_FAILURE(byte_stream_.Finalize());
     return Success();
   }
 
  private:
+  FailureOrVoid WriteIndex() {
+    uint64_t index_offset = written_bytes_;
+
+    // Number of families + family number and number of pages + pages
+    // themselves + index_offset + magic integrity seal.
+    uint64_t required_size = sizeof(uint32_t) +
+        page_index_.size() * (sizeof(uint32_t) + sizeof(uint64_t)) +
+        written_pages_ * sizeof(uint64_t)
+        + sizeof(uint64_t) + sizeof(uint64_t);
+
+    // TODO(wzoltak): use allocator?
+    std::unique_ptr<uint8_t> buffer(new uint8_t[required_size]);
+
+    google::protobuf::io::ArrayOutputStream
+        array_stream(buffer.get(), required_size);
+    google::protobuf::io::CodedOutputStream stream(&array_stream);
+
+    stream.WriteLittleEndian32(page_index_.size());
+    for (auto it = page_index_.begin(); it != page_index_.end(); it++) {
+      uint32_t family = it->first;
+      uint64_t family_size = it->second.size();
+
+      stream.WriteLittleEndian32(family);
+      stream.WriteLittleEndian64(family_size);
+      for (uint64_t page_offset : it->second) {
+        stream.WriteLittleEndian64(page_offset);
+      }
+    }
+
+    stream.WriteLittleEndian64(index_offset);
+    stream.WriteLittleEndian64(kMagicStorageConstant);
+
+    PROPAGATE_ON_FAILURE(
+        byte_stream_.AppendBytes(buffer.get(), stream.ByteCount()));
+
+    return Success();
+  }
+
+  std::map<uint32_t, std::vector<uint64_t>> page_index_;
   FileByteStreamWriter byte_stream_;
+  uint64_t written_bytes_;
   uint64_t written_pages_;
   DISALLOW_COPY_AND_ASSIGN(FilePageStreamWriter);
 };
@@ -207,29 +258,33 @@ class FileRandomPageReader : public RandomPageReader {
 
   // Inits the instances. Must be called before any other method.
   FailureOrVoid Init() {
-    int64_t file_size = file_->Size();
-    if (file_size < 0) {
+    file_size_ = file_->Size();
+    if (file_size_ < 0) {
       THROW(new Exception(
           ERROR_GENERAL_IO_ERROR,
           "Unable to retrieve total size of underlying file."));
     }
-    ReadExactly(file_size - sizeof(uint64_t),
-                &total_pages_,
-                sizeof(uint64_t));
+
+    PROPAGATE_ON_FAILURE(ReadIndex());
+    total_pages_ = page_index_[0].size();
     return Success();
   }
 
-  FailureOr<const Page*> GetPage(int offset) {
+  FailureOr<const Page*> GetPage(int number) {
+    uint32_t family = 0;
     if (finalized_) {
       THROW(new Exception(
           ERROR_INVALID_STATE,
           "Reading from finalized FileRandomPageReader."));
     }
+    uint64_t page_offset = page_index_[family][number];
     uint64_t page_size;
-    PROPAGATE_ON_FAILURE(ReadExactly(offset, &page_size, sizeof(uint64_t)));
+    PROPAGATE_ON_FAILURE(
+        ReadExactly(page_offset, &page_size, sizeof(uint64_t)));
     MaybeResizeBuffer(page_size);
 
-    PROPAGATE_ON_FAILURE(ReadExactly(offset, buffer_->data(), page_size));
+    PROPAGATE_ON_FAILURE(
+        ReadExactly(page_offset, buffer_->data(), page_size));
 
     FailureOrOwned<Page> page_result = CreatePageView(*buffer_.get());
     PROPAGATE_ON_FAILURE(page_result);
@@ -290,11 +345,67 @@ class FileRandomPageReader : public RandomPageReader {
     return Success();
   }
 
+  FailureOrVoid ReadIndex() {
+    uint64_t tail_size = 2 * sizeof(uint64_t);
+    std::unique_ptr<uint8_t> file_tail(new uint8_t[tail_size]);
+    PROPAGATE_ON_FAILURE(
+        ReadExactly(file_size_ - tail_size, file_tail.get(), tail_size));
+
+    // Read tail with index offset and integrity seal.
+    uint64_t index_offset;
+    uint64_t integrity_seal;
+    google::protobuf::io::CodedInputStream
+        tail_stream(file_tail.get(), tail_size);
+    tail_stream.ReadLittleEndian64(&index_offset);
+    tail_stream.ReadLittleEndian64(&integrity_seal);
+
+    PROPAGATE_ON_FAILURE(CheckIntegritySeal(integrity_seal));
+
+    // Read contents of serialized index.
+    uint64_t index_size = file_size_ - tail_size - index_offset;
+    PROPAGATE_ON_FAILURE(MaybeResizeBuffer(index_size));
+    PROPAGATE_ON_FAILURE(
+        ReadExactly(index_offset, buffer_->data(), index_size));
+
+    google::protobuf::io::CodedInputStream
+        stream(static_cast<uint8_t*>(buffer_->data()), index_size);
+
+    // Deserialize index.
+    uint32_t families_count;
+    stream.ReadLittleEndian32(&families_count);
+    for (int family_index = 0; family_index < families_count; family_index++) {
+      uint32_t family;
+      stream.ReadLittleEndian32(&family);
+      uint64_t family_size;
+      stream.ReadLittleEndian64(&family_size);
+
+      std::vector<uint64_t>& pages_offsets = page_index_[family];
+      for (int page_index = 0; page_index < family_size; page_index++) {
+        uint64_t page_offset;
+        stream.ReadLittleEndian64(&page_offset);
+        pages_offsets.emplace_back(page_offset);
+      }
+    }
+    return Success();
+  }
+
+  FailureOrVoid CheckIntegritySeal(uint64_t seal) {
+    if (seal != kMagicStorageConstant) {
+      THROW(new Exception(
+          ERROR_GENERAL_IO_ERROR,
+          StringPrintf("Storage file corrupted! Expected %lu got %lu.",
+                       kMagicStorageConstant, seal)));
+    }
+    return Success();
+  }
+
+  std::map<uint32_t, std::vector<uint64_t>> page_index_;
   File* file_;
   std::unique_ptr<Buffer> buffer_;
   BufferAllocator* allocator_;
   std::unique_ptr<Page> read_page_;
   uint64_t total_pages_;
+  int64_t file_size_;
   bool finalized_;
   DISALLOW_COPY_AND_ASSIGN(FileRandomPageReader);
 };
@@ -314,6 +425,7 @@ class ReadableFileStorage : public ReadableStorage {
   FailureOrOwned<RandomPageReader> NextRandomPageReader() {
     FailureOrOwned<RandomPageReader> result =
         CreateRandomPageReader(next_name_);
+    PROPAGATE_ON_FAILURE(result);
     next_name_ = file_name_generator_->NextFileName();
     return result;
   }
@@ -340,7 +452,11 @@ class ReadableFileStorage : public ReadableStorage {
         page_reader(new FileRandomPageReader(file.release(),
                                              std::move(buffer),
                                              allocator_));
-    PROPAGATE_ON_FAILURE(page_reader->Init());
+    FailureOrVoid init_result = page_reader->Init();
+    if (init_result.is_failure()) {
+      page_reader->Finalize();
+      PROPAGATE_ON_FAILURE(init_result);
+    }
     return Success(page_reader.release());
   }
 

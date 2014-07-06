@@ -62,7 +62,7 @@ class MergingPageStreamReader : public PageStreamReader {
       }
     }
     FailureOr<const Page*> page_result =
-        page_reader_->GetPage(next_page_offset_);
+        page_reader_->GetPage(next_page_);
     PROPAGATE_ON_FAILURE(page_result);
 
     next_page_offset_ += page_result.get()->PageHeader().total_size;
