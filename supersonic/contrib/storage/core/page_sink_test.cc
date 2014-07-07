@@ -40,7 +40,8 @@ FailureOrOwned<Sink> CreatePageSink(
     std::unique_ptr<PageStreamWriter> page_stream_writer,
     std::unique_ptr<std::vector<std::unique_ptr<ColumnWriter> > >
         column_writers,
-    std::shared_ptr<PageBuilder> page_builder);
+    std::shared_ptr<PageBuilder> page_builder,
+    uint32_t page_family);
 
 namespace {
 
@@ -66,11 +67,11 @@ MATCHER_P(StreamsInPage, num, "") {
 
 class MockPageStreamWriter : public PageStreamWriter {
  public:
-  MOCK_METHOD1(AppendPage, FailureOrVoid(const Page& page));
+  MOCK_METHOD2(AppendPage, FailureOrVoid(uint32_t, const Page& page));
   MOCK_METHOD0(Finalize, FailureOrVoid());
 
   MockPageStreamWriter* ExpectingAppendPage(uint32_t streams_in_page) {
-    EXPECT_CALL(*this, AppendPage(StreamsInPage(streams_in_page)))
+    EXPECT_CALL(*this, AppendPage(0, StreamsInPage(streams_in_page)))
         .WillOnce(::testing::Return(Success()));
     return this;
   }
@@ -135,7 +136,8 @@ TEST_F(PageSinkTest, DataPassedToColumnWriters) {
       std::move(projector),
       std::move(page_stream),
       std::move(column_writers),
-      std::move(page_builder));
+      std::move(page_builder),
+      0 /* page family */);
   ASSERT_TRUE(page_sink_result.is_success());
   std::unique_ptr<Sink> page_sink(page_sink_result.release());
 
@@ -156,6 +158,7 @@ TEST_F(PageSinkTest, FinalizeFinalizesStreamAndPreventsWriting) {
   FailureOrOwned<Sink> page_sink_result =
       CreatePageSink(std::move(projector),
                      std::move(page_stream),
+                     0 /* page family */,
                      HeapBufferAllocator::Get());
   ASSERT_TRUE(page_sink_result.is_success());
   std::unique_ptr<Sink> page_sink(page_sink_result.release());
@@ -176,6 +179,7 @@ TEST_F(PageSinkTest, FinalizingDumpsLastPage) {
   FailureOrOwned<Sink> page_sink_result =
       CreatePageSink(std::move(projector),
                      std::move(page_stream),
+                     0 /* page family */,
                      HeapBufferAllocator::Get());
   ASSERT_TRUE(page_sink_result.is_success());
   std::unique_ptr<Sink> page_sink(page_sink_result.release());
@@ -206,6 +210,7 @@ TEST_F(PageSinkTest, IsUsingProjector) {
   FailureOrOwned<Sink> page_sink_result =
       CreatePageSink(std::move(projector),
                      std::move(page_stream),
+                     0 /* page family */,
                      HeapBufferAllocator::Get());
   ASSERT_TRUE(page_sink_result.is_success());
   std::unique_ptr<Sink> page_sink(page_sink_result.release());

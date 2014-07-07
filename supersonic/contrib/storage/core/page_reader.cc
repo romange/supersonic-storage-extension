@@ -34,12 +34,14 @@ class PageReaderCursor : public BasicCursor {
  public:
   PageReaderCursor(TupleSchema schema,
                    std::unique_ptr<RandomPageReader> page_reader,
-                   std::unique_ptr<ColumnReaderVector> column_readers)
+                   std::unique_ptr<ColumnReaderVector> column_readers,
+                   uint32_t page_family)
       : BasicCursor(schema),
         page_reader_(std::move(page_reader)),
         column_readers_(std::move(column_readers)),
         buffered_rows_(0),
-        next_page_(1),
+        page_family_(page_family),
+        next_page_(0),
         eos_(false) {
     for (std::unique_ptr<ColumnReader>& column_reader : *column_readers_) {
       column_views_.emplace_back();
@@ -60,12 +62,16 @@ class PageReaderCursor : public BasicCursor {
     }
 
     if (buffered_rows_ == 0) {
-      if (next_page_ >= page_reader_->TotalPages()) {
+      FailureOr<uint64_t> total_pages_result =
+          page_reader_->TotalPages(page_family_);
+      PROPAGATE_ON_FAILURE(total_pages_result);
+      if (next_page_ >= total_pages_result.get()) {
         eos_ = true;
         page_reader_->Finalize();
         return ResultView::EOS();
       }
-      FailureOr<const Page*> page_result = page_reader_->GetPage(next_page_);
+      FailureOr<const Page*> page_result =
+          page_reader_->GetPage(page_family_, next_page_);
       PROPAGATE_ON_FAILURE(page_result);
       const Page& page = *page_result.get();
       PROPAGATE_ON_FAILURE(UpdateViews(page));
@@ -118,6 +124,7 @@ class PageReaderCursor : public BasicCursor {
   std::unique_ptr<ColumnReaderVector> column_readers_;
   std::vector<std::unique_ptr<View> > column_views_;
   rowcount_t buffered_rows_;
+  uint32_t page_family_;
   uint64_t next_page_;
   bool eos_;
 };
@@ -127,6 +134,7 @@ class PageReaderCursor : public BasicCursor {
 FailureOrOwned<Cursor> PageReader(
     TupleSchema schema,
     std::unique_ptr<RandomPageReader> page_reader,
+    uint32_t page_family,
     BufferAllocator* buffer_allocator) {
   // For each attribute create column reader.
   std::unique_ptr<ColumnReaderVector> column_readers(new ColumnReaderVector());
@@ -145,17 +153,20 @@ FailureOrOwned<Cursor> PageReader(
 
   return Success(new PageReaderCursor(schema,
                                       std::move(page_reader),
-                                      std::move(column_readers)));
+                                      std::move(column_readers),
+                                      page_family));
 }
 
 std::unique_ptr<Cursor>
     PageReader(TupleSchema schema,
                std::unique_ptr<RandomPageReader> page_stream,
-               std::unique_ptr<ColumnReaderVector> column_readers) {
+               std::unique_ptr<ColumnReaderVector> column_readers,
+               uint32_t page_family) {
   return std::unique_ptr<Cursor>(
       new PageReaderCursor(schema,
                            std::move(page_stream),
-                           std::move(column_readers)));
+                           std::move(column_readers),
+                           page_family));
 }
 
 }  // namespace supersonic

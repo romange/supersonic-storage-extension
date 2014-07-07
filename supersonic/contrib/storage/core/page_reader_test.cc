@@ -34,27 +34,28 @@ typedef std::vector<std::unique_ptr<ColumnReader> > ColumnReaderVector;
 std::unique_ptr<Cursor>
     PageReader(TupleSchema schema,
                std::unique_ptr<RandomPageReader> page_stream,
-               std::unique_ptr<ColumnReaderVector> column_readers);
+               std::unique_ptr<ColumnReaderVector> column_readers,
+               uint32_t page_family);
 
 namespace {
 
 class MockRandomPageReader : public RandomPageReader {
  public:
-  MOCK_METHOD1(GetPage, FailureOr<const Page*>(uint64_t));
-  MOCK_METHOD0(TotalPages, uint64_t());
+  MOCK_METHOD2(GetPage, FailureOr<const Page*>(uint32_t, uint64_t));
+  MOCK_METHOD1(TotalPages, FailureOr<uint64_t>(uint32_t));
   MOCK_METHOD0(Finalize, FailureOrVoid());
 
   MockRandomPageReader* ExpectingGetPage(int number,
                                          const Page* returned_page) {
-    EXPECT_CALL(*this, GetPage(number))
+    EXPECT_CALL(*this, GetPage(0, number))
         .InSequence(seq)
         .WillOnce(::testing::Return(Success(returned_page)));
     return this;
   }
 
   MockRandomPageReader* WithTotalPages(uint64_t returned_total) {
-    EXPECT_CALL(*this, TotalPages())
-        .WillRepeatedly(::testing::Return(returned_total));
+    EXPECT_CALL(*this, TotalPages(0))
+        .WillRepeatedly(::testing::Return(Success(returned_total)));
     return this;
   }
 
@@ -105,7 +106,8 @@ class PageReaderTest : public ::testing::Test {
     column_readers->push_back(std::move(mock_column_reader2));
     return PageReader(TupleSchema::Merge(schema1, schema2),
                       std::move(mock_page_stream),
-                      std::move(column_readers));
+                      std::move(column_readers),
+                      0);
   }
 
   TupleSchema schema1;
@@ -129,8 +131,8 @@ TEST_F(PageReaderTest, NormalFlow) {
       .AddRow().Double(1.5).CheckSuccess();
 
   mock_page_stream
-      ->WithTotalPages(2)
-      ->ExpectingGetPage(1, CreateFilledPage(3))
+      ->WithTotalPages(1)
+      ->ExpectingGetPage(0, CreateFilledPage(3))
       ->ExpectingFinalize();
   mock_column_reader1->ExpectingReadColumn(&table1.view());
   mock_column_reader2->ExpectingReadColumn(&table2.view());
@@ -166,7 +168,7 @@ TEST_F(PageReaderTest, InconsistentInputThrows) {
       .AddRow().Double(1.2)
       .AddRow().Double(1.5).CheckSuccess();
 
-  mock_page_stream->WithTotalPages(2)->ExpectingGetPage(1, CreateFilledPage(3))
+  mock_page_stream->WithTotalPages(1)->ExpectingGetPage(0, CreateFilledPage(3))
       ->ExpectingFinalize();
   mock_column_reader1->ExpectingReadColumn(&table1.view());
   mock_column_reader2->ExpectingReadColumn(&table2.view());

@@ -324,8 +324,6 @@ test_contrib_storage_core_SOURCES  = \
     supersonic/contrib/storage/core/integration_test.cc \
     supersonic/contrib/storage/core/data_type_deserializer.cc \
     supersonic/contrib/storage/core/file_series.cc \
-    supersonic/contrib/storage/core/slicing_page_stream_writer.cc \
-    supersonic/contrib/storage/core/merging_page_stream_reader.cc \
     supersonic/contrib/storage/core/page_reader.cc \
     supersonic/contrib/storage/core/storage_scan.cc \
     supersonic/contrib/storage/core/page_builder.cc \

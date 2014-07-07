@@ -30,6 +30,7 @@ namespace supersonic {
 FailureOrOwned<Cursor> PageReader(
     TupleSchema schema,
     std::unique_ptr<RandomPageReader> page_reader,
+    uint32_t page_family,
     BufferAllocator* allocator);
 
 }  // namespace supersonic

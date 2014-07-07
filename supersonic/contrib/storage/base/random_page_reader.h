@@ -28,10 +28,11 @@ class RandomPageReader {
   virtual ~RandomPageReader() {}
 
   // Gets page with given number.
-  virtual FailureOr<const Page*> GetPage(uint64_t number) = 0;
+  virtual FailureOr<const Page*> GetPage(uint32_t family,
+                                         uint64_t number) = 0;
 
   // Returns the number of available pages.
-  virtual uint64_t TotalPages() = 0;
+  virtual FailureOr<uint64_t> TotalPages(uint32_t family) = 0;
 
   // Finalizes the reader. Must be called before instance destruction.
   virtual FailureOrVoid Finalize() = 0;

@@ -32,6 +32,7 @@ namespace supersonic {
 FailureOrOwned<Sink> CreatePageSink(
     std::unique_ptr<const BoundSingleSourceProjector> projector,
     std::unique_ptr<PageStreamWriter> page_stream_writer,
+    uint32_t page_family,
     BufferAllocator* buffer_allocator);
 
 }  // namespace supersonic

@@ -27,7 +27,7 @@ class PageStreamWriter {
   virtual ~PageStreamWriter() {}
 
   // Appends given page to the underlying page stream.
-  virtual FailureOrVoid AppendPage(const Page& page) = 0;
+  virtual FailureOrVoid AppendPage(uint32_t family, const Page& page) = 0;
 
   // Finalizes the PageStreamWriter. After the writer is finalized it can not
   // be used for writing anymore. Finalize must be always called before the

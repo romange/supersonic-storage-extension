@@ -36,8 +36,8 @@ namespace supersonic {
 namespace {
 
 // TODO(wzoltak): Move somewhere else.
-const std::string kDataStreamExtension = ".data";
-const std::string kSchemaStreamName = "schema.meta";
+const uint32_t kMetadataPageFamily = 0;
+const uint32_t kDataPageFamily = 1;
 const int kMaxRowCount = 8192;
 
 // TODO(wzoltak): Comment.
@@ -75,7 +75,8 @@ FailureOrOwned<Cursor>
       random_page_reader(random_page_reader_result.release());
 
   // Read schema
-  FailureOr<const Page*> page_result = random_page_reader->GetPage(0);
+  FailureOr<const Page*> page_result =
+      random_page_reader->GetPage(kMetadataPageFamily, 0 /* page number */);
   PROPAGATE_ON_FAILURE(page_result);
   FailureOr<TupleSchema> schema = ReadSchemaPage(*page_result.get());
   PROPAGATE_ON_FAILURE(schema);
@@ -84,6 +85,7 @@ FailureOrOwned<Cursor>
   FailureOrOwned<Cursor> page_reader_result =
       PageReader(schema.get(),
                  std::move(random_page_reader),
+                 kDataPageFamily,
                  allocator);
   PROPAGATE_ON_FAILURE(page_reader_result);
   std::unique_ptr<Cursor> page_reader(page_reader_result.release());

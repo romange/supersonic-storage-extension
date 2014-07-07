@@ -41,9 +41,9 @@
 
 namespace supersonic {
 
-// TODO(wzoltak): Move somewhere else. It is required during reading.
-const std::string kDataStreamExtension = ".data";
-const std::string kSchemaStreamName = "schema.meta";
+// TODO(wzoltak): Move somewhere else. It is also required during reading.
+const uint32_t kMetadataPageFamily = 0;
+const uint32_t kDataPageFamily = 1;
 
 // Represents a Sink which can write data into persistent storage.
 // Splits data into single-attribute views and writes them into separate
@@ -97,11 +97,6 @@ class StorageSink : public Sink {
     return Success();
   }
 
-  // Returns a name of stream in which attribute will be stored.
-  static std::string StreamName(const Attribute& attribute) {
-    return attribute.name() + kDataStreamExtension;
-  }
-
  private:
   std::unique_ptr<PageSinkVector> page_sinks_;
   std::unique_ptr<SingleSourceProjectorVector> projectors_;
@@ -129,7 +124,9 @@ FailureOrOwned<Sink> CreateFileStorageSink(
   FailureOrOwned<Page> schema_page_result =
       CreateSchemaPage(schema, allocator);
   PROPAGATE_ON_FAILURE(schema_page_result);
-  PROPAGATE_ON_FAILURE(page_stream->AppendPage(*schema_page_result.get()));
+  // TODO(wzoltak): magic constant
+  PROPAGATE_ON_FAILURE(
+      page_stream->AppendPage(kMetadataPageFamily, *schema_page_result.get()));
 
   // Create projector
   std::unique_ptr<const SingleSourceProjector>
@@ -144,14 +141,14 @@ FailureOrOwned<Sink> CreateFileStorageSink(
   FailureOrOwned<Sink> page_sink =
       CreatePageSink(std::move(bound_projector),
                      std::move(page_stream),
+                     kDataPageFamily,
                      allocator);
   PROPAGATE_ON_FAILURE(page_sink);
 
   page_sinks->emplace_back(page_sink.release());
   projectors->emplace_back(projector.release());
 
-  return Success(new StorageSink(std::move(page_sinks),
-                                 std::move(projectors)));
+  return Success(new StorageSink(std::move(page_sinks), std::move(projectors)));
 }
 
 // For testing purposes only.

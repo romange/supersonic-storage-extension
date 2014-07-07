@@ -42,14 +42,16 @@ class PageSink : public Sink {
       std::unique_ptr<const BoundSingleSourceProjector> projector,
       std::unique_ptr<PageStreamWriter> page_stream_writer,
       std::unique_ptr<
-          std::vector<std::unique_ptr<ColumnWriter> > > column_writers,
-      std::shared_ptr<PageBuilder> page_builder)
+          std::vector<std::unique_ptr<ColumnWriter>>> column_writers,
+      std::shared_ptr<PageBuilder> page_builder,
+      uint32_t page_family)
       : finalized_(false),
         builder_dirty_(false),
         projector_(std::move(projector)),
         page_stream_writer_(std::move(page_stream_writer)),
         column_writers_(std::move(column_writers)),
-        page_builder_(page_builder) {
+        page_builder_(page_builder),
+        page_family_(page_family) {
   }
 
   virtual ~PageSink() {
@@ -103,7 +105,7 @@ class PageSink : public Sink {
     PROPAGATE_ON_FAILURE(page_result);
     std::unique_ptr<Page> page(page_result.release());
 
-    page_stream_writer_->AppendPage(*page);
+    page_stream_writer_->AppendPage(page_family_, *page);
     page_builder_->Reset();
     builder_dirty_ = false;
 
@@ -116,12 +118,14 @@ class PageSink : public Sink {
   std::unique_ptr<PageStreamWriter> page_stream_writer_;
   std::unique_ptr<std::vector<std::unique_ptr<ColumnWriter> > > column_writers_;
   std::shared_ptr<PageBuilder> page_builder_;
+  uint32_t page_family_;
   DISALLOW_COPY_AND_ASSIGN(PageSink);
 };
 
 FailureOrOwned<Sink> CreatePageSink(
     std::unique_ptr<const BoundSingleSourceProjector> projector,
     std::unique_ptr<PageStreamWriter> page_stream_writer,
+    uint32_t page_family,
     BufferAllocator* buffer_allocator) {
   std::unique_ptr<std::vector<std::unique_ptr<ColumnWriter> > > serializers(
       new std::vector<std::unique_ptr<ColumnWriter> >());
@@ -142,8 +146,11 @@ FailureOrOwned<Sink> CreatePageSink(
   page_builder->Reset(streams_count);
 
   std::unique_ptr<PageSink> sink(
-      new PageSink(std::move(projector), std::move(page_stream_writer),
-                   std::move(serializers), std::move(page_builder)));
+      new PageSink(std::move(projector),
+                   std::move(page_stream_writer),
+                   std::move(serializers),
+                   std::move(page_builder),
+                   page_family));
   return Success(sink.release());
 }
 
@@ -153,10 +160,14 @@ FailureOrOwned<Sink> CreatePageSink(
     std::unique_ptr<PageStreamWriter> page_stream_writer,
     std::unique_ptr<
         std::vector<std::unique_ptr<ColumnWriter> > > column_writers,
-    std::shared_ptr<PageBuilder> page_builder) {
+    std::shared_ptr<PageBuilder> page_builder,
+    uint32_t page_family) {
   std::unique_ptr<PageSink> page_sink(
-      new PageSink(std::move(projector), std::move(page_stream_writer),
-                   std::move(column_writers), page_builder));
+      new PageSink(std::move(projector),
+                   std::move(page_stream_writer),
+                   std::move(column_writers),
+                   page_builder,
+                   page_family));
   return Success(page_sink.release());
 }
 

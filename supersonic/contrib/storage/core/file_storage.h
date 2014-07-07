@@ -127,10 +127,8 @@ class FilePageStreamWriter : public PageStreamWriter {
         written_bytes_(0),
         written_pages_(0) {}
 
-  virtual FailureOrVoid AppendPage(const Page& page) {
+  virtual FailureOrVoid AppendPage(uint32_t family, const Page& page) {
     // TODO(wzoltak): acutally, use that.
-    uint32_t family = 0;
-
     FailureOrVoid appended = byte_stream_.AppendBytes(page.RawData(),
         page.PageHeader().total_size);
     PROPAGATE_ON_FAILURE(appended);
@@ -246,7 +244,6 @@ class FileRandomPageReader : public RandomPageReader {
      : file_(file),
        buffer_(std::move(buffer)),
        allocator_(allocator),
-       total_pages_(0),
        finalized_(false) {}
 
   virtual ~FileRandomPageReader() {
@@ -266,12 +263,10 @@ class FileRandomPageReader : public RandomPageReader {
     }
 
     PROPAGATE_ON_FAILURE(ReadIndex());
-    total_pages_ = page_index_[0].size();
     return Success();
   }
 
-  FailureOr<const Page*> GetPage(uint64_t number) {
-    uint32_t family = 0;
+  FailureOr<const Page*> GetPage(uint32_t family, uint64_t number) {
     if (finalized_) {
       THROW(new Exception(
           ERROR_INVALID_STATE,
@@ -293,8 +288,13 @@ class FileRandomPageReader : public RandomPageReader {
     return Success(read_page_.get());
   }
 
-  virtual uint64_t TotalPages() {
-    return total_pages_;
+  virtual FailureOr<uint64_t> TotalPages(uint32_t family) {
+    auto it = page_index_.find(family);
+    if (it == page_index_.end()) {
+      THROW(new Exception(ERROR_INVALID_ARGUMENT_VALUE,
+                          StringPrintf("Unknown page family '%d'.", family)));
+    }
+    return Success(it->second.size());
   }
 
   virtual FailureOrVoid Finalize() {
@@ -404,7 +404,6 @@ class FileRandomPageReader : public RandomPageReader {
   std::unique_ptr<Buffer> buffer_;
   BufferAllocator* allocator_;
   std::unique_ptr<Page> read_page_;
-  uint64_t total_pages_;
   int64_t file_size_;
   bool finalized_;
   DISALLOW_COPY_AND_ASSIGN(FileRandomPageReader);

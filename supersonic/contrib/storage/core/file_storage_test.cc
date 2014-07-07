@@ -96,7 +96,7 @@ TEST_F(FileStorageTest, WriteThenRead) {
     std::unique_ptr<PageStreamWriter> page_writer(page_writer_result.release());
 
     for (int write = 0; write < writes; write++) {
-      ASSERT_TRUE(page_writer->AppendPage(*page).is_success());
+      ASSERT_TRUE(page_writer->AppendPage(1, *page).is_success());
     }
     page_writer->Finalize();
   }
@@ -126,7 +126,7 @@ TEST_F(FileStorageTest, WriteThenRead) {
 
     for (int write = 0; write < writes; write++) {
       FailureOr<const Page*> read_page =
-          page_reader->GetPage(write);
+          page_reader->GetPage(1, write);
       ASSERT_TRUE(read_page.is_success());
       AssertEqualPages(*read_page.get(), *page);
     }
