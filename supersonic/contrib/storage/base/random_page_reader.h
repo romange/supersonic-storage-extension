@@ -28,7 +28,7 @@ class RandomPageReader {
   virtual ~RandomPageReader() {}
 
   // Gets page with given number.
-  virtual FailureOr<const Page*> GetPage(int number) = 0;
+  virtual FailureOr<const Page*> GetPage(uint64_t number) = 0;
 
   // Returns the number of available pages.
   virtual uint64_t TotalPages() = 0;

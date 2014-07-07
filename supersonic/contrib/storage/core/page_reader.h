@@ -19,8 +19,9 @@
 #include <memory>
 
 #include "supersonic/base/exception/result.h"
-#include "supersonic/contrib/storage/base/page_stream_reader.h"
+#include "supersonic/contrib/storage/base/random_page_reader.h"
 #include "supersonic/cursor/base/cursor.h"
+
 
 namespace supersonic {
 
@@ -28,7 +29,7 @@ namespace supersonic {
 // stream. Takes ownership over page stream.
 FailureOrOwned<Cursor> PageReader(
     TupleSchema schema,
-    std::unique_ptr<PageStreamReader> page_stream,
+    std::unique_ptr<RandomPageReader> page_reader,
     BufferAllocator* allocator);
 
 }  // namespace supersonic

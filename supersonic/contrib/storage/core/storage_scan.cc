@@ -68,14 +68,14 @@ FailureOrOwned<Cursor>
     FileStorageScan(std::unique_ptr<ReadableStorage> storage,
                           BufferAllocator* allocator) {
   // Create PageStreamReader
-  FailureOrOwned<PageStreamReader> page_stream_reader_result
-      = CreateMergingPageStreamReader(std::move(storage));
-  PROPAGATE_ON_FAILURE(page_stream_reader_result);
-    std::unique_ptr<PageStreamReader>
-        page_stream_reader(page_stream_reader_result.release());
+  FailureOrOwned<RandomPageReader> random_page_reader_result =
+      storage->NextRandomPageReader();
+  PROPAGATE_ON_FAILURE(random_page_reader_result);
+  std::unique_ptr<RandomPageReader>
+      random_page_reader(random_page_reader_result.release());
 
   // Read schema
-  FailureOr<const Page*> page_result = page_stream_reader->NextPage();
+  FailureOr<const Page*> page_result = random_page_reader->GetPage(0);
   PROPAGATE_ON_FAILURE(page_result);
   FailureOr<TupleSchema> schema = ReadSchemaPage(*page_result.get());
   PROPAGATE_ON_FAILURE(schema);
@@ -83,7 +83,7 @@ FailureOrOwned<Cursor>
   // Create PageReader
   FailureOrOwned<Cursor> page_reader_result =
       PageReader(schema.get(),
-                 std::move(page_stream_reader),
+                 std::move(random_page_reader),
                  allocator);
   PROPAGATE_ON_FAILURE(page_reader_result);
   std::unique_ptr<Cursor> page_reader(page_reader_result.release());

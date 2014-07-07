@@ -33,24 +33,32 @@ typedef std::vector<std::unique_ptr<ColumnReader> > ColumnReaderVector;
 
 std::unique_ptr<Cursor>
     PageReader(TupleSchema schema,
-               std::unique_ptr<PageStreamReader> page_stream,
+               std::unique_ptr<RandomPageReader> page_stream,
                std::unique_ptr<ColumnReaderVector> column_readers);
 
 namespace {
 
-class MockPageStreamReader : public PageStreamReader {
+class MockRandomPageReader : public RandomPageReader {
  public:
-  MOCK_METHOD0(NextPage, FailureOr<const Page*>());
+  MOCK_METHOD1(GetPage, FailureOr<const Page*>(uint64_t));
+  MOCK_METHOD0(TotalPages, uint64_t());
   MOCK_METHOD0(Finalize, FailureOrVoid());
 
-  MockPageStreamReader* ExpectingNextPage(const Page* returned_page) {
-    EXPECT_CALL(*this, NextPage())
+  MockRandomPageReader* ExpectingGetPage(int number,
+                                         const Page* returned_page) {
+    EXPECT_CALL(*this, GetPage(number))
         .InSequence(seq)
         .WillOnce(::testing::Return(Success(returned_page)));
     return this;
   }
 
-  MockPageStreamReader* ExpectingFinalize() {
+  MockRandomPageReader* WithTotalPages(uint64_t returned_total) {
+    EXPECT_CALL(*this, TotalPages())
+        .WillRepeatedly(::testing::Return(returned_total));
+    return this;
+  }
+
+  MockRandomPageReader* ExpectingFinalize() {
     EXPECT_CALL(*this, Finalize()).WillOnce(::testing::Return(Success()));
     return this;
   }
@@ -78,16 +86,9 @@ class PageReaderTest : public ::testing::Test {
   virtual void SetUp() {
     schema1.add_attribute(Attribute("A", INT32, NULLABLE));
     schema2.add_attribute(Attribute("B", DOUBLE, NOT_NULLABLE));
-    mock_page_stream.reset(new MockPageStreamReader());
+    mock_page_stream.reset(new MockRandomPageReader());
     mock_column_reader1.reset(new MockColumnReader(2));
     mock_column_reader2.reset(new MockColumnReader(1));
-  }
-
-  Page* CreateEmptyPage() {
-    PageBuilder page_builder(0, HeapBufferAllocator::Get());
-    FailureOrOwned<Page> page_result = page_builder.CreatePage();
-    page_result.mark_checked();
-    return page_result.release();
   }
 
   Page* CreateFilledPage(int streams) {
@@ -110,7 +111,7 @@ class PageReaderTest : public ::testing::Test {
   TupleSchema schema1;
   TupleSchema schema2;
 
-  std::unique_ptr<MockPageStreamReader> mock_page_stream;
+  std::unique_ptr<MockRandomPageReader> mock_page_stream;
   std::unique_ptr<MockColumnReader> mock_column_reader1;
   std::unique_ptr<MockColumnReader> mock_column_reader2;
 };
@@ -128,8 +129,8 @@ TEST_F(PageReaderTest, NormalFlow) {
       .AddRow().Double(1.5).CheckSuccess();
 
   mock_page_stream
-      ->ExpectingNextPage(CreateFilledPage(3))
-      ->ExpectingNextPage(CreateEmptyPage())
+      ->WithTotalPages(2)
+      ->ExpectingGetPage(1, CreateFilledPage(3))
       ->ExpectingFinalize();
   mock_column_reader1->ExpectingReadColumn(&table1.view());
   mock_column_reader2->ExpectingReadColumn(&table2.view());
@@ -150,7 +151,7 @@ TEST_F(PageReaderTest, NormalFlow) {
 }
 
 TEST_F(PageReaderTest, EosFinalizesStream) {
-  mock_page_stream->ExpectingNextPage(CreateEmptyPage())->ExpectingFinalize();
+  mock_page_stream->WithTotalPages(0)->ExpectingFinalize();
   std::unique_ptr<Cursor> page_reader_result = CreateCursorUnderTest();
   ASSERT_TRUE(page_reader_result->Next(50).is_eos());
 }
@@ -165,7 +166,8 @@ TEST_F(PageReaderTest, InconsistentInputThrows) {
       .AddRow().Double(1.2)
       .AddRow().Double(1.5).CheckSuccess();
 
-  mock_page_stream->ExpectingNextPage(CreateFilledPage(3))->ExpectingFinalize();
+  mock_page_stream->WithTotalPages(2)->ExpectingGetPage(1, CreateFilledPage(3))
+      ->ExpectingFinalize();
   mock_column_reader1->ExpectingReadColumn(&table1.view());
   mock_column_reader2->ExpectingReadColumn(&table2.view());
 

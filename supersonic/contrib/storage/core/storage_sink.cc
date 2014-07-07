@@ -30,6 +30,7 @@
 #include "supersonic/contrib/storage/core/file_storage.h"
 #include "supersonic/contrib/storage/core/page_builder.h"
 #include "supersonic/contrib/storage/core/page_sink.h"
+#include "supersonic/contrib/storage/core/schema_serialization.h"
 #include "supersonic/contrib/storage/core/slicing_page_stream_writer.h"
 #include "supersonic/contrib/storage/util/schema_converter.h"
 #include "supersonic/contrib/storage/util/path_util.h"
@@ -112,20 +113,23 @@ class StorageSink : public Sink {
 FailureOrOwned<Sink> CreateFileStorageSink(
     const TupleSchema& schema,
     std::unique_ptr<WritableStorage> storage,
-    BufferAllocator* buffer_allocator) {
+    BufferAllocator* allocator) {
   std::unique_ptr<vector<std::unique_ptr<Sink> > > page_sinks(
       new vector<std::unique_ptr<Sink> >());
   std::unique_ptr<vector<std::unique_ptr<const SingleSourceProjector> > >
       projectors(new vector<std::unique_ptr<const SingleSourceProjector> >());
 
   // Create page stream
-  FailureOrOwned<PageStreamWriter> slicing_page_stream_result =
-      CreateSlicingPageStreamWriter(schema,
-                                    std::move(storage),
-                                    buffer_allocator);
-  PROPAGATE_ON_FAILURE(slicing_page_stream_result);
-  std::unique_ptr<PageStreamWriter>
-      slicing_page_stream(slicing_page_stream_result.release());
+  FailureOrOwned<PageStreamWriter> page_stream_result =
+      storage->NextPageStreamWriter();
+  PROPAGATE_ON_FAILURE(page_stream_result);
+  std::unique_ptr<PageStreamWriter> page_stream(page_stream_result.release());
+
+  // Write schema
+  FailureOrOwned<Page> schema_page_result =
+      CreateSchemaPage(schema, allocator);
+  PROPAGATE_ON_FAILURE(schema_page_result);
+  PROPAGATE_ON_FAILURE(page_stream->AppendPage(*schema_page_result.get()));
 
   // Create projector
   std::unique_ptr<const SingleSourceProjector>
@@ -139,14 +143,12 @@ FailureOrOwned<Sink> CreateFileStorageSink(
   // Create PageSink
   FailureOrOwned<Sink> page_sink =
       CreatePageSink(std::move(bound_projector),
-                     std::move(slicing_page_stream),
-                     buffer_allocator);
+                     std::move(page_stream),
+                     allocator);
   PROPAGATE_ON_FAILURE(page_sink);
 
   page_sinks->emplace_back(page_sink.release());
   projectors->emplace_back(projector.release());
-
-  std::unique_ptr<WritableStorage> empty_storage;
 
   return Success(new StorageSink(std::move(page_sinks),
                                  std::move(projectors)));

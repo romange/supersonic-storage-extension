@@ -270,7 +270,7 @@ class FileRandomPageReader : public RandomPageReader {
     return Success();
   }
 
-  FailureOr<const Page*> GetPage(int number) {
+  FailureOr<const Page*> GetPage(uint64_t number) {
     uint32_t family = 0;
     if (finalized_) {
       THROW(new Exception(
