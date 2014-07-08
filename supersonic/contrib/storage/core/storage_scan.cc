@@ -78,19 +78,23 @@ FailureOrOwned<Cursor>
   FailureOr<const Page*> page_result =
       random_page_reader->GetPage(kMetadataPageFamily, 0 /* page number */);
   PROPAGATE_ON_FAILURE(page_result);
-  FailureOr<TupleSchema> schema = ReadSchemaPage(*page_result.get());
-  PROPAGATE_ON_FAILURE(schema);
+  FailureOrOwned<std::vector<std::pair<uint32_t, const TupleSchema>>>
+      partitioned_schema = ReadPartitionedSchemaPage(*page_result.get());
+  PROPAGATE_ON_FAILURE(partitioned_schema);
 
   // Create PageReader
+  const std::pair<uint32_t, const TupleSchema>& family =
+      (*partitioned_schema)[0];
   FailureOrOwned<Cursor> page_reader_result =
-      PageReader(schema.get(),
+      PageReader(family.second,
                  std::move(random_page_reader),
-                 kDataPageFamily,
+                 family.first,
                  allocator);
   PROPAGATE_ON_FAILURE(page_reader_result);
   std::unique_ptr<Cursor> page_reader(page_reader_result.release());
 
-  return Success(new StorageScanCursor(schema.get(), std::move(page_reader)));
+  return Success(
+      new StorageScanCursor(family.second, std::move(page_reader)));
 }
 
 }  // namespace supersonic

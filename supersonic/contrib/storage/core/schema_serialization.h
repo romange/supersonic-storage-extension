@@ -16,6 +16,8 @@
 #ifndef SUPERSONIC_CONTRIB_STORAGE_CORE_SCHEMA_SERIALIZATION_H_
 #define SUPERSONIC_CONTRIB_STORAGE_CORE_SCHEMA_SERIALIZATION_H_
 
+#include <vector>
+
 #include "supersonic/base/infrastructure/tuple_schema.h"
 #include "supersonic/base/exception/result.h"
 #include "supersonic/contrib/storage/base/page.h"
@@ -23,14 +25,18 @@
 
 namespace supersonic {
 
-// Creates a page which contains a serialized TupleSchema.
-// TupleSchema is serialized to Schema and then dumped as string to byte buffer
-// number 0.
-FailureOrOwned<Page> CreateSchemaPage(const TupleSchema& schema,
-                                      BufferAllocator* allocator);
+// Creates a page which contains a serialized list of (family, schema) pairs.
+// The list is describing a partitioning of actual table schema. The data
+// is serialized to PartitionedSchema protobuf message and dumped in binary
+// form to byte buffer number 0.
+FailureOrOwned<Page> CreatePartitionedSchemaPage(
+    std::vector<std::pair<uint32_t, const TupleSchema>>& families,
+    BufferAllocator* allocator);
 
-// Reads schema from page, described in CreateSchemaPage function.
-FailureOr<TupleSchema> ReadSchemaPage(const Page& page);
+// Reads partitioned schema from page, described in CreatePartitionedSchemaPage
+// function.
+FailureOrOwned<std::vector<std::pair<uint32_t, const TupleSchema>>>
+    ReadPartitionedSchemaPage(const Page& page);
 
 }  // namespace supersonic
 

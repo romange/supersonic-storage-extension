@@ -145,3 +145,13 @@ message AttributeProto {
   // {min_cardinality, max_cardinality} pair.
   optional CardinalityType cardinality = 5;
 }
+
+// Describes a partitoned schema e.g. in persistent storage.
+message PartitionedSchema {
+  repeated AttributeFamily attribute_family = 1;
+}
+
+message AttributeFamily {
+  required int32 family_number = 1;
+  required SchemaProto schema = 2;
+}

@@ -121,8 +121,10 @@ FailureOrOwned<Sink> CreateFileStorageSink(
   std::unique_ptr<PageStreamWriter> page_stream(page_stream_result.release());
 
   // Write schema
+  std::vector<std::pair<uint32_t, const TupleSchema>> families;
+  families.emplace_back(kDataPageFamily, schema);
   FailureOrOwned<Page> schema_page_result =
-      CreateSchemaPage(schema, allocator);
+      CreatePartitionedSchemaPage(families, allocator);
   PROPAGATE_ON_FAILURE(schema_page_result);
   // TODO(wzoltak): magic constant
   PROPAGATE_ON_FAILURE(

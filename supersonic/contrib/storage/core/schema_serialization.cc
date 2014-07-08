@@ -27,26 +27,35 @@
 
 namespace supersonic {
 
-FailureOrOwned<Page> CreateSchemaPage(const TupleSchema& schema,
-                                      BufferAllocator* allocator) {
+FailureOrOwned<Page> CreatePartitionedSchemaPage(
+    std::vector<std::pair<uint32_t, const TupleSchema>>& families,
+    BufferAllocator* allocator) {
   PageBuilder page_builder(1, allocator);
 
-  std::string serialized_schema;
-  FailureOrOwned<SchemaProto> schema_proto_result =
-      SchemaConverter::TupleSchemaToSchemaProto(schema);
-  PROPAGATE_ON_FAILURE(schema_proto_result);
-  ::google::protobuf::TextFormat::PrintToString(*schema_proto_result,
-                                                &serialized_schema);
+  PartitionedSchema partitioned_schema;
+  for (std::pair<uint32_t, const TupleSchema>& family : families) {
+    uint32_t family_number = family.first;
+    FailureOrOwned<SchemaProto> schema =
+        SchemaConverter::TupleSchemaToSchemaProto(family.second);
+    PROPAGATE_ON_FAILURE(schema);
 
+    AttributeFamily* attribute_family =
+        partitioned_schema.add_attribute_family();
+    attribute_family->set_family_number(family_number);
+    attribute_family->set_allocated_schema(schema.release());
+  }
+
+  std::string serialized_families = partitioned_schema.SerializeAsString();
   page_builder.AppendToByteBuffer(0,
-                                  serialized_schema.c_str(),
-                                  serialized_schema.length());
+                                  serialized_families.c_str(),
+                                  serialized_families.length());
 
   return page_builder.CreatePage();
 }
 
 
-FailureOr<TupleSchema> ReadSchemaPage(const Page& page) {
+FailureOrOwned<std::vector<std::pair<uint32_t, const TupleSchema>>>
+    ReadPartitionedSchemaPage(const Page& page) {
   FailureOr<const ByteBufferHeader*> byte_buffer_header =
       page.ByteBufferHeader(0);
   PROPAGATE_ON_FAILURE(byte_buffer_header);
@@ -54,17 +63,23 @@ FailureOr<TupleSchema> ReadSchemaPage(const Page& page) {
   FailureOr<const void*> byte_buffer = page.ByteBuffer(0);
   PROPAGATE_ON_FAILURE(byte_buffer);
 
-  SchemaProto schema_proto;
-  ::google::protobuf::io::ArrayInputStream
-      array_input_stream(byte_buffer.get(),
-                         byte_buffer_header.get()->length);
-  ::google::protobuf::TextFormat::Parse(&array_input_stream, &schema_proto);
+  PartitionedSchema partitioned_schema;
+  partitioned_schema.ParseFromArray(byte_buffer.get(),
+                                    byte_buffer_header.get()->length);
 
-  FailureOr<TupleSchema> tuple_schema_result =
-     SchemaConverter::SchemaProtoToTupleSchema(schema_proto);
-  PROPAGATE_ON_FAILURE(tuple_schema_result);
+  std::unique_ptr<std::vector<std::pair<uint32_t, const TupleSchema>>>
+      schema(new std::vector<std::pair<uint32_t, const TupleSchema>>());
+  for (int index = 0;
+      index < partitioned_schema.attribute_family_size();
+      index++) {
+    const AttributeFamily& family = partitioned_schema.attribute_family(index);
+    FailureOr<TupleSchema> family_schema =
+        SchemaConverter::SchemaProtoToTupleSchema(family.schema());
+    PROPAGATE_ON_FAILURE(family_schema);
+    schema->emplace_back(family.family_number(), family_schema.get());
+  }
 
-  return Success(tuple_schema_result.get());
+  return Success(schema.release());
 }
 
 }  // namespace supersonic

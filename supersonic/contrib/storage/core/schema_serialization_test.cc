@@ -22,22 +22,37 @@ namespace supersonic {
 namespace {
 
 TEST(SchemaSerializationTest, DumpThenReadSchema) {
-  TupleSchema schema;
-  schema.add_attribute(Attribute("A", INT32, NULLABLE));
-  schema.add_attribute(Attribute("B", DOUBLE, NOT_NULLABLE));
+  uint32_t schema_a_family = 1;
+  TupleSchema schema_a;
+  schema_a.add_attribute(Attribute("A", INT32, NULLABLE));
+
+  uint32_t schema_b_family = 31;
+  TupleSchema schema_b;
+  schema_b.add_attribute(Attribute("B", DOUBLE, NOT_NULLABLE));
+
+  std::vector<std::pair<uint32_t, const TupleSchema>> partitioned_schema;
+  partitioned_schema.emplace_back(schema_a_family, schema_a);
+  partitioned_schema.emplace_back(schema_b_family, schema_b);
 
   FailureOrOwned<Page> page_result =
-      CreateSchemaPage(schema, HeapBufferAllocator::Get());
+      CreatePartitionedSchemaPage(partitioned_schema,
+                                  HeapBufferAllocator::Get());
   ASSERT_TRUE(page_result.is_success());
   std::unique_ptr<Page> page(page_result.release());
 
-  FailureOr<TupleSchema> read_schema_result = ReadSchemaPage(*page);
+  FailureOrOwned<std::vector<std::pair<uint32_t, const TupleSchema>>>
+      read_schema_result = ReadPartitionedSchemaPage(*page);
   ASSERT_TRUE(read_schema_result.is_success());
 
-  bool equal_schema = TupleSchema::AreEqual(schema,
-                                            read_schema_result.get(),
-                                            true /* check names */);
-  ASSERT_TRUE(equal_schema);
+  ASSERT_EQ(partitioned_schema.size(), read_schema_result->size());
+  for (int index = 0; index < partitioned_schema.size(); index++) {
+    ASSERT_EQ(partitioned_schema[index].first,
+              (*read_schema_result)[index].first);
+    bool equal_schema = TupleSchema::AreEqual(partitioned_schema[index].second,
+                                             (*read_schema_result)[index].second,
+                                             true /* check names */);
+    ASSERT_TRUE(equal_schema);
+  }
 }
 
 }  // namespace
