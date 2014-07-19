@@ -33,11 +33,11 @@ typedef std::vector<std::unique_ptr<ColumnReader> > ColumnReaderVector;
 class PageReaderCursor : public BasicCursor {
  public:
   PageReaderCursor(TupleSchema schema,
-                   std::unique_ptr<RandomPageReader> page_reader,
+                   std::shared_ptr<RandomPageReader> page_reader,
                    std::unique_ptr<ColumnReaderVector> column_readers,
                    uint32_t page_family)
       : BasicCursor(schema),
-        page_reader_(std::move(page_reader)),
+        page_reader_(page_reader),
         column_readers_(std::move(column_readers)),
         buffered_rows_(0),
         page_family_(page_family),
@@ -50,6 +50,8 @@ class PageReaderCursor : public BasicCursor {
 
   ~PageReaderCursor() {
     if (!eos_) {
+      // Note that page reader is shared and Finalize may be called multiple
+      // times, but due to its idempotent nature everything is OK.
       page_reader_->Finalize();
     }
   }
@@ -75,12 +77,12 @@ class PageReaderCursor : public BasicCursor {
       PROPAGATE_ON_FAILURE(page_result);
       const Page& page = *page_result.get();
       PROPAGATE_ON_FAILURE(UpdateViews(page));
+      next_page_++;
     }
 
     effective_row_count = min(effective_row_count, buffered_rows_);
     AdvanceViews(effective_row_count);
 
-    next_page_++;
     return ResultView::Success(my_view());
   }
 
@@ -120,7 +122,7 @@ class PageReaderCursor : public BasicCursor {
     return Success();
   }
 
-  std::unique_ptr<RandomPageReader> page_reader_;
+  std::shared_ptr<RandomPageReader> page_reader_;
   std::unique_ptr<ColumnReaderVector> column_readers_;
   std::vector<std::unique_ptr<View> > column_views_;
   rowcount_t buffered_rows_;
@@ -133,7 +135,7 @@ class PageReaderCursor : public BasicCursor {
 
 FailureOrOwned<Cursor> PageReader(
     TupleSchema schema,
-    std::unique_ptr<RandomPageReader> page_reader,
+    std::shared_ptr<RandomPageReader> page_reader,
     uint32_t page_family,
     BufferAllocator* buffer_allocator) {
   // For each attribute create column reader.
@@ -152,19 +154,19 @@ FailureOrOwned<Cursor> PageReader(
   }
 
   return Success(new PageReaderCursor(schema,
-                                      std::move(page_reader),
+                                      page_reader,
                                       std::move(column_readers),
                                       page_family));
 }
 
 std::unique_ptr<Cursor>
     PageReader(TupleSchema schema,
-               std::unique_ptr<RandomPageReader> page_stream,
+               std::shared_ptr<RandomPageReader> page_reader,
                std::unique_ptr<ColumnReaderVector> column_readers,
                uint32_t page_family) {
   return std::unique_ptr<Cursor>(
       new PageReaderCursor(schema,
-                           std::move(page_stream),
+                           page_reader,
                            std::move(column_readers),
                            page_family));
 }

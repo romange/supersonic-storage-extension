@@ -48,9 +48,10 @@ TEST(SchemaSerializationTest, DumpThenReadSchema) {
   for (int index = 0; index < partitioned_schema.size(); index++) {
     ASSERT_EQ(partitioned_schema[index].first,
               (*read_schema_result)[index].first);
-    bool equal_schema = TupleSchema::AreEqual(partitioned_schema[index].second,
-                                             (*read_schema_result)[index].second,
-                                             true /* check names */);
+    bool equal_schema =
+        TupleSchema::AreEqual(partitioned_schema[index].second,
+                              (*read_schema_result)[index].second,
+                              true /* check names */);
     ASSERT_TRUE(equal_schema);
   }
 }

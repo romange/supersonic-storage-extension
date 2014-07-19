@@ -37,7 +37,8 @@
 namespace supersonic {
 
 FailureOrOwned<Sink> CreateStorageSink(
-    std::unique_ptr<std::vector<std::unique_ptr<Sink> > > page_sinks);
+    std::unique_ptr<std::vector<std::unique_ptr<Sink>>> page_sinks,
+    std::shared_ptr<PageStreamWriter> page_stream);
 
 namespace {
 
@@ -59,13 +60,15 @@ class MockPageSink : public Sink {
 };
 
 
-class MockStorage : public WritableStorage {
+class MockPageStreamWriter : public PageStreamWriter {
  public:
-  MOCK_METHOD0(NextPageStreamWriter, FailureOrOwned<PageStreamWriter>());
-  MOCK_METHOD1(CreatePageStreamReader,
-                 FailureOrOwned<PageStreamReader>(const std::string& name));
-  MOCK_METHOD1(CreateByteStreamReader,
-                 FailureOrOwned<ByteStreamReader>(const std::string& name));
+  MOCK_METHOD2(AppendPage, FailureOrVoid(uint32_t, const Page&));
+  MOCK_METHOD0(Finalize, FailureOrVoid());
+
+  MockPageStreamWriter* ExpectFinalize() {
+    EXPECT_CALL(*this, Finalize()).WillOnce(::testing::Return(Success()));
+    return this;
+  }
 };
 
 
@@ -93,14 +96,15 @@ MATCHER_P2(EqualsBuffer, buffer, length, "") {
 
 
 TEST_F(StorageSinkTest, WritingToFinalizedThrows) {
-  std::unique_ptr<std::vector<std::unique_ptr<Sink> > > page_sinks(
-      new std::vector<std::unique_ptr<Sink> >());
-  std::unique_ptr<WritableStorage> storage(new MockStorage());
+  std::unique_ptr<std::vector<std::unique_ptr<Sink>>> page_sinks(
+      new std::vector<std::unique_ptr<Sink>>());
+  std::shared_ptr<PageStreamWriter>
+        page_stream((new MockPageStreamWriter)->ExpectFinalize());
   TupleSchema schema;
   Table table(schema, HeapBufferAllocator::Get());
 
   FailureOrOwned<Sink> storage_sink_result =
-      CreateStorageSink(std::move(page_sinks));
+      CreateStorageSink(std::move(page_sinks), page_stream);
   ASSERT_TRUE(storage_sink_result.is_success());
   std::unique_ptr<Sink> storage_sink(storage_sink_result.release());
 
@@ -113,12 +117,13 @@ TEST_F(StorageSinkTest, FinalizesAffectsPageSinks) {
       new std::vector<std::unique_ptr<Sink> >());
   page_sinks->emplace_back((new MockPageSink())->ExpectFinalize());
   page_sinks->emplace_back((new MockPageSink())->ExpectFinalize());
+  std::shared_ptr<PageStreamWriter>
+      page_stream((new MockPageStreamWriter)->ExpectFinalize());
 
-  std::unique_ptr<WritableStorage> storage(new MockStorage());
   TupleSchema schema = CreateTupleSchema();
 
   FailureOrOwned<Sink> storage_sink_result =
-      CreateStorageSink(std::move(page_sinks));
+      CreateStorageSink(std::move(page_sinks), page_stream);
   ASSERT_TRUE(storage_sink_result.is_success());
   std::unique_ptr<Sink> storage_sink(storage_sink_result.release());
 
@@ -135,10 +140,11 @@ TEST_F(StorageSinkTest, DataIsPassedToPageSinks) {
       (new MockPageSink())->ExpectFinalize()->ExpectWrite(view));
   page_sinks->emplace_back(
       (new MockPageSink())->ExpectFinalize()->ExpectWrite(view));
-  std::unique_ptr<WritableStorage> storage(new MockStorage());
+  std::shared_ptr<PageStreamWriter>
+      page_stream((new MockPageStreamWriter)->ExpectFinalize());
 
   FailureOrOwned<Sink> storage_sink_result =
-      CreateStorageSink(std::move(page_sinks));
+      CreateStorageSink(std::move(page_sinks), page_stream);
   ASSERT_TRUE(storage_sink_result.is_success());
   std::unique_ptr<Sink> storage_sink(storage_sink_result.release());
 

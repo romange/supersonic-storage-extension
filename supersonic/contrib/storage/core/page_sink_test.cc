@@ -37,7 +37,7 @@ namespace supersonic {
 
 FailureOrOwned<Sink> CreatePageSink(
     std::unique_ptr<const BoundSingleSourceProjector> projector,
-    std::unique_ptr<PageStreamWriter> page_stream_writer,
+    std::shared_ptr<PageStreamWriter> page_stream_writer,
     std::unique_ptr<std::vector<std::unique_ptr<ColumnWriter> > >
         column_writers,
     std::shared_ptr<PageBuilder> page_builder,
@@ -73,11 +73,6 @@ class MockPageStreamWriter : public PageStreamWriter {
   MockPageStreamWriter* ExpectingAppendPage(uint32_t streams_in_page) {
     EXPECT_CALL(*this, AppendPage(0, StreamsInPage(streams_in_page)))
         .WillOnce(::testing::Return(Success()));
-    return this;
-  }
-
-  MockPageStreamWriter* ExpectingFinalize() {
-    EXPECT_CALL(*this, Finalize()).WillOnce(::testing::Return(Success()));
     return this;
   }
 };
@@ -117,9 +112,8 @@ TEST_F(PageSinkTest, DataPassedToColumnWriters) {
   std::unique_ptr<const BoundSingleSourceProjector> projector =
       CreateProjector(schema);
   std::unique_ptr<Table> table = CreateTableWithData(schema);
-  std::unique_ptr<PageStreamWriter> page_stream(
-      (new MockPageStreamWriter())->ExpectingAppendPage(3)
-                                  ->ExpectingFinalize());
+  std::shared_ptr<PageStreamWriter> page_stream(
+      (new MockPageStreamWriter())->ExpectingAppendPage(3));
   std::unique_ptr<PageBuilder> page_builder(
       new PageBuilder(3, HeapBufferAllocator::Get()));
 
@@ -132,12 +126,12 @@ TEST_F(PageSinkTest, DataPassedToColumnWriters) {
       (new MockColumnWriter(2))
           ->ExpectingWriteColumn(&table->view().column(1)));
 
-  FailureOrOwned<Sink> page_sink_result = CreatePageSink(
-      std::move(projector),
-      std::move(page_stream),
-      std::move(column_writers),
-      std::move(page_builder),
-      0 /* page family */);
+  FailureOrOwned<Sink> page_sink_result =
+      CreatePageSink(std::move(projector),
+                     page_stream,
+                     std::move(column_writers),
+                     std::move(page_builder),
+                     0 /* page family */);
   ASSERT_TRUE(page_sink_result.is_success());
   std::unique_ptr<Sink> page_sink(page_sink_result.release());
 
@@ -148,16 +142,15 @@ TEST_F(PageSinkTest, DataPassedToColumnWriters) {
   ASSERT_TRUE(page_sink->Finalize().is_success());
 }
 
-TEST_F(PageSinkTest, FinalizeFinalizesStreamAndPreventsWriting) {
+TEST_F(PageSinkTest, FinalizeFinalizesStream) {
   TupleSchema schema;
   std::unique_ptr<const BoundSingleSourceProjector> projector =
       CreateProjector(schema);
-  std::unique_ptr<PageStreamWriter> page_stream(
-      (new MockPageStreamWriter())->ExpectingFinalize());
+  std::shared_ptr<PageStreamWriter> page_stream(new MockPageStreamWriter());
 
   FailureOrOwned<Sink> page_sink_result =
       CreatePageSink(std::move(projector),
-                     std::move(page_stream),
+                     page_stream,
                      0 /* page family */,
                      HeapBufferAllocator::Get());
   ASSERT_TRUE(page_sink_result.is_success());
@@ -172,13 +165,12 @@ TEST_F(PageSinkTest, FinalizingDumpsLastPage) {
   TupleSchema schema = CreateSchema();
   std::unique_ptr<const BoundSingleSourceProjector> projector =
       CreateProjector(schema);
-  std::unique_ptr<MockPageStreamWriter> page_stream(
-      (new MockPageStreamWriter())->ExpectingAppendPage(3)
-                                  ->ExpectingFinalize());
+  std::shared_ptr<MockPageStreamWriter> page_stream(
+      (new MockPageStreamWriter())->ExpectingAppendPage(3));
 
   FailureOrOwned<Sink> page_sink_result =
       CreatePageSink(std::move(projector),
-                     std::move(page_stream),
+                     page_stream,
                      0 /* page family */,
                      HeapBufferAllocator::Get());
   ASSERT_TRUE(page_sink_result.is_success());
@@ -196,9 +188,8 @@ TEST_F(PageSinkTest, FinalizingDumpsLastPage) {
 
 TEST_F(PageSinkTest, IsUsingProjector) {
   TupleSchema schema = CreateSchema();
-  std::unique_ptr<MockPageStreamWriter> page_stream(
-      (new MockPageStreamWriter())->ExpectingAppendPage(2)
-                                  ->ExpectingFinalize());
+  std::shared_ptr<MockPageStreamWriter> page_stream(
+      (new MockPageStreamWriter())->ExpectingAppendPage(2));
 
   NamedAttributeProjector unbound_projector("B");
   FailureOrOwned<const BoundSingleSourceProjector> projector_result =
@@ -209,7 +200,7 @@ TEST_F(PageSinkTest, IsUsingProjector) {
 
   FailureOrOwned<Sink> page_sink_result =
       CreatePageSink(std::move(projector),
-                     std::move(page_stream),
+                     page_stream,
                      0 /* page family */,
                      HeapBufferAllocator::Get());
   ASSERT_TRUE(page_sink_result.is_success());

@@ -26,10 +26,10 @@
 namespace supersonic {
 
 // Creates a Cursor which reads data described by `schema` from given page
-// stream. Takes ownership over page stream.
+// stream.
 FailureOrOwned<Cursor> PageReader(
     TupleSchema schema,
-    std::unique_ptr<RandomPageReader> page_reader,
+    std::shared_ptr<RandomPageReader> page_reader,
     uint32_t page_family,
     BufferAllocator* allocator);
 

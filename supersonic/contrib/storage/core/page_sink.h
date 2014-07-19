@@ -28,10 +28,10 @@
 namespace supersonic {
 
 // Creates a PageSink, which dumps projected data into given page stream.
-// Takes ownership over projector and page stream writer.
+// Takes ownership over projector.
 FailureOrOwned<Sink> CreatePageSink(
     std::unique_ptr<const BoundSingleSourceProjector> projector,
-    std::unique_ptr<PageStreamWriter> page_stream_writer,
+    std::shared_ptr<PageStreamWriter> page_stream_writer,
     uint32_t page_family,
     BufferAllocator* buffer_allocator);
 

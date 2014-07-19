@@ -33,7 +33,7 @@ typedef std::vector<std::unique_ptr<ColumnReader> > ColumnReaderVector;
 
 std::unique_ptr<Cursor>
     PageReader(TupleSchema schema,
-               std::unique_ptr<RandomPageReader> page_stream,
+               std::shared_ptr<RandomPageReader> page_stream,
                std::unique_ptr<ColumnReaderVector> column_readers,
                uint32_t page_family);
 
@@ -87,7 +87,7 @@ class PageReaderTest : public ::testing::Test {
   virtual void SetUp() {
     schema1.add_attribute(Attribute("A", INT32, NULLABLE));
     schema2.add_attribute(Attribute("B", DOUBLE, NOT_NULLABLE));
-    mock_page_stream.reset(new MockRandomPageReader());
+    mock_page_reader.reset(new MockRandomPageReader());
     mock_column_reader1.reset(new MockColumnReader(2));
     mock_column_reader2.reset(new MockColumnReader(1));
   }
@@ -105,7 +105,7 @@ class PageReaderTest : public ::testing::Test {
     column_readers->push_back(std::move(mock_column_reader1));
     column_readers->push_back(std::move(mock_column_reader2));
     return PageReader(TupleSchema::Merge(schema1, schema2),
-                      std::move(mock_page_stream),
+                      mock_page_reader,
                       std::move(column_readers),
                       0);
   }
@@ -113,7 +113,7 @@ class PageReaderTest : public ::testing::Test {
   TupleSchema schema1;
   TupleSchema schema2;
 
-  std::unique_ptr<MockRandomPageReader> mock_page_stream;
+  std::shared_ptr<MockRandomPageReader> mock_page_reader;
   std::unique_ptr<MockColumnReader> mock_column_reader1;
   std::unique_ptr<MockColumnReader> mock_column_reader2;
 };
@@ -130,7 +130,7 @@ TEST_F(PageReaderTest, NormalFlow) {
       .AddRow().Double(1.2)
       .AddRow().Double(1.5).CheckSuccess();
 
-  mock_page_stream
+  mock_page_reader
       ->WithTotalPages(1)
       ->ExpectingGetPage(0, CreateFilledPage(3))
       ->ExpectingFinalize();
@@ -153,7 +153,7 @@ TEST_F(PageReaderTest, NormalFlow) {
 }
 
 TEST_F(PageReaderTest, EosFinalizesStream) {
-  mock_page_stream->WithTotalPages(0)->ExpectingFinalize();
+  mock_page_reader->WithTotalPages(0)->ExpectingFinalize();
   std::unique_ptr<Cursor> page_reader_result = CreateCursorUnderTest();
   ASSERT_TRUE(page_reader_result->Next(50).is_eos());
 }
@@ -168,7 +168,7 @@ TEST_F(PageReaderTest, InconsistentInputThrows) {
       .AddRow().Double(1.2)
       .AddRow().Double(1.5).CheckSuccess();
 
-  mock_page_stream->WithTotalPages(1)->ExpectingGetPage(0, CreateFilledPage(3))
+  mock_page_reader->WithTotalPages(1)->ExpectingGetPage(0, CreateFilledPage(3))
       ->ExpectingFinalize();
   mock_column_reader1->ExpectingReadColumn(&table1.view());
   mock_column_reader2->ExpectingReadColumn(&table2.view());

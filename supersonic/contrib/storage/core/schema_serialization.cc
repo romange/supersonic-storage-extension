@@ -18,6 +18,7 @@
 #include <google/protobuf/io/zero_copy_stream_impl_lite.h>
 #include <google/protobuf/text_format.h>
 #include <string>
+#include <utility>
 
 #include "supersonic/base/exception/exception_macros.h"
 #include "supersonic/base/exception/result.h"
@@ -28,12 +29,12 @@
 namespace supersonic {
 
 FailureOrOwned<Page> CreatePartitionedSchemaPage(
-    std::vector<std::pair<uint32_t, const TupleSchema>>& families,
+    const std::vector<std::pair<uint32_t, const TupleSchema>>& families,
     BufferAllocator* allocator) {
   PageBuilder page_builder(1, allocator);
 
   PartitionedSchema partitioned_schema;
-  for (std::pair<uint32_t, const TupleSchema>& family : families) {
+  for (const std::pair<uint32_t, const TupleSchema>& family : families) {
     uint32_t family_number = family.first;
     FailureOrOwned<SchemaProto> schema =
         SchemaConverter::TupleSchemaToSchemaProto(family.second);

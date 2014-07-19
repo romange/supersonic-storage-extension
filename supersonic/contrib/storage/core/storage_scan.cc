@@ -18,6 +18,7 @@
 #include <memory>
 #include <string>
 #include <vector>
+#include <utility>
 
 #include "supersonic/base/exception/exception.h"
 #include "supersonic/base/exception/result.h"
@@ -28,17 +29,17 @@
 #include "supersonic/contrib/storage/core/page_reader.h"
 #include "supersonic/contrib/storage/core/schema_serialization.h"
 #include "supersonic/cursor/base/operation.h"
+#include "supersonic/cursor/core/coalesce.h"
 #include "supersonic/cursor/infrastructure/basic_cursor.h"
 
 
 namespace supersonic {
-
 namespace {
+
+typedef std::pair<uint32_t, const TupleSchema> Family;
 
 // TODO(wzoltak): Move somewhere else.
 const uint32_t kMetadataPageFamily = 0;
-const uint32_t kDataPageFamily = 1;
-const int kMaxRowCount = 8192;
 
 // TODO(wzoltak): Comment.
 class StorageScanCursor : public BasicCursor {
@@ -61,17 +62,40 @@ class StorageScanCursor : public BasicCursor {
   std::unique_ptr<Cursor> data_to_join_;
 };
 
+
+// For each given page family description creates a PageReader object.
+FailureOrOwned<std::vector<Cursor*>>
+    CreatePageReaders(const std::vector<Family>& partitioned_schema,
+                      std::shared_ptr<RandomPageReader> page_reader,
+                      BufferAllocator* allocator) {
+  std::unique_ptr<std::vector<Cursor*>>
+      page_readers(new std::vector<Cursor*>());
+
+  for (const Family& family : partitioned_schema) {
+    FailureOrOwned<Cursor> page_reader_result =
+        PageReader(family.second,
+                   page_reader,
+                   family.first,
+                   allocator);
+    PROPAGATE_ON_FAILURE(page_reader_result);
+    page_readers->push_back(page_reader_result.release());
+  }
+
+  return Success(page_readers.release());
+}
+
 }  // namespace
 
 
 FailureOrOwned<Cursor>
     FileStorageScan(std::unique_ptr<ReadableStorage> storage,
-                          BufferAllocator* allocator) {
+                    BufferAllocator* allocator) {
   // Create PageStreamReader
+  // Ownership will be shared between PageReaders.
   FailureOrOwned<RandomPageReader> random_page_reader_result =
       storage->NextRandomPageReader();
   PROPAGATE_ON_FAILURE(random_page_reader_result);
-  std::unique_ptr<RandomPageReader>
+  std::shared_ptr<RandomPageReader>
       random_page_reader(random_page_reader_result.release());
 
   // Read schema
@@ -82,19 +106,19 @@ FailureOrOwned<Cursor>
       partitioned_schema = ReadPartitionedSchemaPage(*page_result.get());
   PROPAGATE_ON_FAILURE(partitioned_schema);
 
-  // Create PageReader
-  const std::pair<uint32_t, const TupleSchema>& family =
-      (*partitioned_schema)[0];
-  FailureOrOwned<Cursor> page_reader_result =
-      PageReader(family.second,
-                 std::move(random_page_reader),
-                 family.first,
-                 allocator);
-  PROPAGATE_ON_FAILURE(page_reader_result);
-  std::unique_ptr<Cursor> page_reader(page_reader_result.release());
+  // Create readers
+  FailureOrOwned<std::vector<Cursor*>> page_readers_result =
+      CreatePageReaders(*partitioned_schema, random_page_reader, allocator);
+  PROPAGATE_ON_FAILURE(page_readers_result);
+
+  FailureOrOwned<Cursor> coalesce_result = BoundCoalesce(*page_readers_result);
+  PROPAGATE_ON_FAILURE(coalesce_result);
+  std::unique_ptr<Cursor> coalesce(coalesce_result.release());
+
+  TupleSchema coalesce_schema = coalesce->schema();
 
   return Success(
-      new StorageScanCursor(family.second, std::move(page_reader)));
+      new StorageScanCursor(coalesce_schema, std::move(coalesce)));
 }
 
 }  // namespace supersonic

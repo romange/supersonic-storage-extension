@@ -320,6 +320,7 @@ test_contrib_storage_core_SOURCES  = \
     supersonic/contrib/storage/base/column_reader.cc \
     supersonic/contrib/storage/util/schema_converter_test.cc \
     supersonic/contrib/storage/core/schema_serialization_test.cc \
+    supersonic/contrib/storage/base/schema_partitioner_test.cc \
     supersonic/contrib/storage/core/page_reader_test.cc \
     supersonic/contrib/storage/core/integration_test.cc \
     supersonic/contrib/storage/core/data_type_deserializer.cc \
@@ -332,6 +333,7 @@ test_contrib_storage_core_SOURCES  = \
     supersonic/contrib/storage/core/schema_serialization.cc \
     supersonic/contrib/storage/util/path_util.cc \
     supersonic/contrib/storage/base/column_writer.cc \
+    supersonic/contrib/storage/base/schema_partitioner.cc \
     supersonic/contrib/storage/core/data_type_serializer.cc \
     supersonic/contrib/storage/util/schema_converter.cc
 TESTS += test_contrib_storage_core

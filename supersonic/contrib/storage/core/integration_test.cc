@@ -102,10 +102,11 @@ TEST_F(IntegrationTest, FullFlow) {
   int seeds[] = { 124, -543, 8656, -74512, 23412, 13412, 412 };
   Generator generator(schema_, seeds, pieces_);
   size_t written = 0;
+  size_t step = 1000;
   for (int i = 0; i < 100; i++) {
-    const View& view = generator.Generate(1000);
+    const View& view = generator.Generate(step);
     ASSERT_TRUE(storage_sink->Write(view).is_success());
-    written += 1000;
+    written += step;
   }
   storage_sink->Finalize();
 

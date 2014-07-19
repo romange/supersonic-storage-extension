@@ -41,8 +41,8 @@ class NumericDataTypeSerializer : public Serializer {
     for (size_t array_index = 0; array_index < arrays; array_index ++) {
       const CppType* data_chunk = data[array_index].as<T>();
       output_page->AppendToByteBuffer(output_buffer_number,
-                                        data_chunk,
-                                        lengths[array_index] * sizeof(CppType));
+                                      data_chunk,
+                                      lengths[array_index] * sizeof(CppType));
     }
     return Success();
   }

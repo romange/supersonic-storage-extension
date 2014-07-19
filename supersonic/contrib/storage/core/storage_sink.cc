@@ -19,6 +19,7 @@
 #include <memory>
 #include <string>
 #include <vector>
+#include <utility>
 
 #include "supersonic/base/exception/exception_macros.h"
 #include "supersonic/base/exception/exception.h"
@@ -27,6 +28,7 @@
 #include "supersonic/contrib/storage/base/storage.h"
 #include "supersonic/contrib/storage/base/byte_stream_writer.h"
 #include "supersonic/contrib/storage/base/page_stream_writer.h"
+#include "supersonic/contrib/storage/base/schema_partitioner.h"
 #include "supersonic/contrib/storage/core/file_storage.h"
 #include "supersonic/contrib/storage/core/page_builder.h"
 #include "supersonic/contrib/storage/core/page_sink.h"
@@ -38,27 +40,30 @@
 
 #include "supersonic/proto/supersonic.pb.h"
 
-
 namespace supersonic {
+namespace {
+
+typedef std::pair<uint32_t, const TupleSchema> Family;
 
 // TODO(wzoltak): Move somewhere else. It is also required during reading.
 const uint32_t kMetadataPageFamily = 0;
-const uint32_t kDataPageFamily = 1;
+const uint32_t kFirstDataPageFamily = 1;
 
 // Represents a Sink which can write data into persistent storage.
 // Splits data into single-attribute views and writes them into separate
 // PageSink objects.
 class StorageSink : public Sink {
  public:
-  typedef vector<std::unique_ptr<Sink> > PageSinkVector;
-  typedef vector<std::unique_ptr<const SingleSourceProjector> >
+  typedef vector<std::unique_ptr<Sink>> PageSinkVector;
+  typedef vector<std::unique_ptr<const SingleSourceProjector>>
       SingleSourceProjectorVector;
 
-  StorageSink(
-      std::unique_ptr<PageSinkVector> page_sinks,
-      std::unique_ptr<SingleSourceProjectorVector> projectors)
+  StorageSink(std::unique_ptr<PageSinkVector> page_sinks,
+              std::unique_ptr<SingleSourceProjectorVector> projectors,
+              std::shared_ptr<PageStreamWriter> page_stream_writer)
       : page_sinks_(std::move(page_sinks)),
         projectors_(std::move(projectors)),
+        page_stream_writer_(page_stream_writer),
         finalized_(false) {}
 
   virtual ~StorageSink() {
@@ -93,6 +98,7 @@ class StorageSink : public Sink {
       FailureOrVoid result = page_sink->Finalize();
       PROPAGATE_ON_FAILURE(result);
     }
+    PROPAGATE_ON_FAILURE(page_stream_writer_->Finalize());
     finalized_ = true;
     return Success();
   }
@@ -100,67 +106,124 @@ class StorageSink : public Sink {
  private:
   std::unique_ptr<PageSinkVector> page_sinks_;
   std::unique_ptr<SingleSourceProjectorVector> projectors_;
+  std::shared_ptr<PageStreamWriter> page_stream_writer_;
   bool finalized_;
   DISALLOW_COPY_AND_ASSIGN(StorageSink);
 };
 
 
+// Enumerates schema partitions starting from given number.
+std::unique_ptr<std::vector<Family>>
+    EnumeratePartitions(const std::vector<TupleSchema>& partitions, int start) {
+  std::unique_ptr<std::vector<Family>> enumerated(new std::vector<Family>());
+  for (const TupleSchema& partition : partitions) {
+    enumerated->emplace_back(start, partition);
+    start++;
+  }
+  return std::move(enumerated);
+}
+
+
+// Creates a SingleSourceProjector for single family.
+std::unique_ptr<const SingleSourceProjector>
+    CreateFamilyProjector(Family family) {
+  std::vector<std::string> attributes_names;
+  for (int index = 0; index < family.second.attribute_count(); index++) {
+    const Attribute& attribute = family.second.attribute(index);
+    attributes_names.emplace_back(attribute.name());
+  }
+  return std::unique_ptr<const SingleSourceProjector>(
+      ProjectNamedAttributes(attributes_names));
+}
+
+
+FailureOrOwned<std::vector<std::unique_ptr<Sink>>>
+    CreatePageSinks(const std::vector<Family>& families,
+                    TupleSchema schema,
+                    std::shared_ptr<PageStreamWriter> page_stream,
+                    BufferAllocator* allocator) {
+  std::unique_ptr<std::vector<std::unique_ptr<Sink>>>
+      page_sinks(new std::vector<std::unique_ptr<Sink>>);
+
+  for (const Family& family : families) {
+    std::unique_ptr<const SingleSourceProjector> projector =
+        CreateFamilyProjector(family);
+    FailureOrOwned<const BoundSingleSourceProjector> bound_projector_result =
+        projector->Bind(schema);
+    PROPAGATE_ON_FAILURE(bound_projector_result);
+    std::unique_ptr<const BoundSingleSourceProjector>
+        bound_projector(bound_projector_result.release());
+
+    FailureOrOwned<Sink> page_sink =
+          CreatePageSink(std::move(bound_projector),
+                         page_stream,
+                         family.first,
+                         allocator);
+    PROPAGATE_ON_FAILURE(page_sink);
+    page_sinks->emplace_back(page_sink.release());
+  }
+
+  return Success(page_sinks.release());
+}
+
+}  // namespace
+
 FailureOrOwned<Sink> CreateFileStorageSink(
     const TupleSchema& schema,
     std::unique_ptr<WritableStorage> storage,
     BufferAllocator* allocator) {
-  std::unique_ptr<vector<std::unique_ptr<Sink> > > page_sinks(
-      new vector<std::unique_ptr<Sink> >());
-  std::unique_ptr<vector<std::unique_ptr<const SingleSourceProjector> > >
-      projectors(new vector<std::unique_ptr<const SingleSourceProjector> >());
+  std::unique_ptr<vector<std::unique_ptr<const SingleSourceProjector>>>
+      projectors(new vector<std::unique_ptr<const SingleSourceProjector>>());
 
   // Create page stream
   FailureOrOwned<PageStreamWriter> page_stream_result =
       storage->NextPageStreamWriter();
   PROPAGATE_ON_FAILURE(page_stream_result);
-  std::unique_ptr<PageStreamWriter> page_stream(page_stream_result.release());
+  std::shared_ptr<PageStreamWriter> page_stream(page_stream_result.release());
+
+  // Partition schema
+  // TODO(wzoltak): magic constant
+  FailureOrOwned<SchemaPartitioner> partitioner_result =
+      CreateFixedSizeSchemaParitioner(2);
+  PROPAGATE_ON_FAILURE(partitioner_result);
+  std::unique_ptr<SchemaPartitioner> partitioner(partitioner_result.release());
+
+  FailureOrOwned<std::vector<TupleSchema>> partitions =
+      partitioner->Partition(schema);
+  PROPAGATE_ON_FAILURE(partitions);
+  std::unique_ptr<std::vector<Family>> families
+      = EnumeratePartitions(*partitions, kFirstDataPageFamily);
 
   // Write schema
-  std::vector<std::pair<uint32_t, const TupleSchema>> families;
-  families.emplace_back(kDataPageFamily, schema);
   FailureOrOwned<Page> schema_page_result =
-      CreatePartitionedSchemaPage(families, allocator);
+      CreatePartitionedSchemaPage(*families, allocator);
   PROPAGATE_ON_FAILURE(schema_page_result);
   // TODO(wzoltak): magic constant
   PROPAGATE_ON_FAILURE(
       page_stream->AppendPage(kMetadataPageFamily, *schema_page_result.get()));
 
-  // Create projector
-  std::unique_ptr<const SingleSourceProjector>
-      projector(ProjectAllAttributes());
-  FailureOrOwned<const BoundSingleSourceProjector> bound_projector_result(
-      projector->Bind(schema));
-  PROPAGATE_ON_FAILURE(bound_projector_result);
-  std::unique_ptr<const BoundSingleSourceProjector>
-      bound_projector(bound_projector_result.release());
+  // Create PageSinks
+  FailureOrOwned<vector<std::unique_ptr<Sink>>> page_sinks_result =
+      CreatePageSinks(*families, schema, page_stream, allocator);
+  PROPAGATE_ON_FAILURE(page_sinks_result);
+  std::unique_ptr<std::vector<std::unique_ptr<Sink>>>
+      page_sinks(page_sinks_result.release());
 
-  // Create PageSink
-  FailureOrOwned<Sink> page_sink =
-      CreatePageSink(std::move(bound_projector),
-                     std::move(page_stream),
-                     kDataPageFamily,
-                     allocator);
-  PROPAGATE_ON_FAILURE(page_sink);
-
-  page_sinks->emplace_back(page_sink.release());
-  projectors->emplace_back(projector.release());
-
-  return Success(new StorageSink(std::move(page_sinks), std::move(projectors)));
+  return Success(new StorageSink(std::move(page_sinks),
+                                 std::move(projectors),
+                                 page_stream));
 }
 
 // For testing purposes only.
 FailureOrOwned<Sink> CreateStorageSink(
-    std::unique_ptr<std::vector<std::unique_ptr<Sink> > > page_sinks) {
+    std::unique_ptr<std::vector<std::unique_ptr<Sink>>> page_sinks,
+    std::shared_ptr<PageStreamWriter> page_stream) {
   std::unique_ptr<std::vector<
-      std::unique_ptr<const SingleSourceProjector> > > projectors(
-          new std::vector<std::unique_ptr<const SingleSourceProjector> >());
+      std::unique_ptr<const SingleSourceProjector>>> projectors(
+          new std::vector<std::unique_ptr<const SingleSourceProjector>>());
   return Success(new StorageSink(std::move(page_sinks),
-                                 std::move(projectors)));
+                                 std::move(projectors),
+                                 page_stream));
 }
 
 }  // namespace supersonic

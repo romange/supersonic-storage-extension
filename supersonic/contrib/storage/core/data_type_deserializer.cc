@@ -53,13 +53,17 @@ class OwningDeserializer : public Deserializer {
 };
 
 // Deserializer for common numeric types, like INT32 or DOUBLE. Simply copies
-// the data into output buffer.
+// the data into output buffer. Data must be copied instead of simply passing
+// the pointer, since the source buffer may be invalidated and re-used for
+// other deserializers.
 // TODO(wzoltak): Handle different byte-SEXes?
 template <DataType T>
-class NumericDataTypeDeserializer : public Deserializer {
+class NumericDataTypeDeserializer : public OwningDeserializer {
  public:
   typedef typename TypeTraits<T>::cpp_type CppType;
-  NumericDataTypeDeserializer() {}
+  NumericDataTypeDeserializer(std::unique_ptr<Buffer> buffer,
+                              BufferAllocator* allocator)
+      : OwningDeserializer(std::move(buffer), allocator) {}
 
   virtual ~NumericDataTypeDeserializer() {}
 
@@ -68,7 +72,10 @@ class NumericDataTypeDeserializer : public Deserializer {
                   const ByteBufferHeader& byte_buffer_header) {
     size_t row_count = byte_buffer_header.length / sizeof(CppType);
 
-    return Success(make_pair(byte_buffer, row_count));
+    PROPAGATE_ON_FAILURE(MaybeResizeBuffer(byte_buffer_header.length * 10000));
+    memcpy(buffer_->data(), byte_buffer, byte_buffer_header.length);
+
+    return Success(make_pair(buffer_->data(), row_count));
   }
 
  private:
@@ -230,16 +237,25 @@ FailureOrOwned<Deserializer> CreateDeserializer(DataType type,
   }
 
   switch (type) {
-    case INT32:     return Success(new NumericDataTypeDeserializer<INT32>());
-    case INT64:     return Success(new NumericDataTypeDeserializer<INT64>());
-    case UINT32:    return Success(new NumericDataTypeDeserializer<UINT32>());
-    case UINT64:    return Success(new NumericDataTypeDeserializer<UINT64>());
-    case DATE:      return Success(new NumericDataTypeDeserializer<DATE>());
-    case DATETIME:  return Success(new NumericDataTypeDeserializer<DATETIME>());
-    case FLOAT:     return Success(new NumericDataTypeDeserializer<FLOAT>());
-    case DOUBLE:    return Success(new NumericDataTypeDeserializer<DOUBLE>());
-    case BOOL:      return Success(new CppBooleanDeserializer(std::move(buffer),
-                                                              allocator));
+    case INT32:     return Success(
+        new NumericDataTypeDeserializer<INT32>(std::move(buffer), allocator));
+    case INT64:     return Success(
+        new NumericDataTypeDeserializer<INT64>(std::move(buffer), allocator));
+    case UINT32:    return Success(
+        new NumericDataTypeDeserializer<UINT32>(std::move(buffer), allocator));
+    case UINT64:    return Success(
+        new NumericDataTypeDeserializer<UINT64>(std::move(buffer), allocator));
+    case DATE:      return Success(
+        new NumericDataTypeDeserializer<DATE>(std::move(buffer), allocator));
+    case DATETIME:  return Success(
+        new NumericDataTypeDeserializer<DATETIME>(std::move(buffer),
+                                                  allocator));
+    case FLOAT:     return Success(
+        new NumericDataTypeDeserializer<FLOAT>(std::move(buffer), allocator));
+    case DOUBLE:    return Success(
+        new NumericDataTypeDeserializer<DOUBLE>(std::move(buffer), allocator));
+    case BOOL:      return Success(
+        new CppBooleanDeserializer(std::move(buffer), allocator));
     case BINARY:    return Success(
         new VariableLengthDeserializer<BINARY>(std::move(buffer), allocator));
     case STRING:    return Success(

@@ -32,6 +32,7 @@
 #include <map>
 #include <set>
 #include <string>
+#include <vector>
 
 #include "supersonic/base/exception/result.h"
 #include "supersonic/base/exception/exception_macros.h"
@@ -71,8 +72,11 @@ FailureOrOwned<File> OpenFileWithMode(const std::string& path,
 // ByteStreamWriter which writes to given File instance.
 class FileByteStreamWriter : public ByteStreamWriter {
  public:
-  explicit FileByteStreamWriter(File* file) : file_(file), finalized_(false),
-      stream_path_(file_->CreateFileName()) {}
+  explicit FileByteStreamWriter(File* file)
+      : file_(file),
+        finalized_(false),
+        stream_path_(file_->CreateFileName()) {
+  }
 
   virtual ~FileByteStreamWriter() {
     if (!finalized_) {
@@ -84,9 +88,9 @@ class FileByteStreamWriter : public ByteStreamWriter {
   virtual FailureOrVoid AppendBytes(const void* buffer, size_t length) {
     if (finalized_) {
       THROW(new Exception(
-          ERROR_INVALID_STATE,
-          StringPrintf("Writing to finalized stream under '%s'.",
-                       stream_path_.c_str())));
+        ERROR_INVALID_STATE,
+        StringPrintf("Writing to finalized stream under '%s'.",
+                     stream_path_.c_str())));
     }
 
     int64 written_bytes = file_->Write(buffer, length);
@@ -125,12 +129,12 @@ class FilePageStreamWriter : public PageStreamWriter {
   explicit FilePageStreamWriter(File* file)
       : byte_stream_(file),
         written_bytes_(0),
-        written_pages_(0) {}
+        written_pages_(0) {
+  }
 
   virtual FailureOrVoid AppendPage(uint32_t family, const Page& page) {
-    // TODO(wzoltak): acutally, use that.
-    FailureOrVoid appended = byte_stream_.AppendBytes(page.RawData(),
-        page.PageHeader().total_size);
+    FailureOrVoid appended =
+        byte_stream_.AppendBytes(page.RawData(), page.PageHeader().total_size);
     PROPAGATE_ON_FAILURE(appended);
 
     // Note that [] operator creates empty (default constructor) value.
@@ -148,15 +152,16 @@ class FilePageStreamWriter : public PageStreamWriter {
   }
 
  private:
+  // TODO(wzoltak): Use protobuf instead of manual de(serialization)?
   FailureOrVoid WriteIndex() {
     uint64_t index_offset = written_bytes_;
 
     // Number of families + family number and number of pages + pages
     // themselves + index_offset + magic integrity seal.
-    uint64_t required_size = sizeof(uint32_t) +
-        page_index_.size() * (sizeof(uint32_t) + sizeof(uint64_t)) +
-        written_pages_ * sizeof(uint64_t)
-        + sizeof(uint64_t) + sizeof(uint64_t);
+    uint64_t required_size = sizeof(uint32_t)
+        + page_index_.size() * (sizeof(uint32_t) + sizeof(uint64_t))
+        + written_pages_ * sizeof(uint64_t) + sizeof(uint64_t)
+        + sizeof(uint64_t);
 
     // TODO(wzoltak): use allocator?
     std::unique_ptr<uint8_t> buffer(new uint8_t[required_size]);
@@ -166,13 +171,13 @@ class FilePageStreamWriter : public PageStreamWriter {
     google::protobuf::io::CodedOutputStream stream(&array_stream);
 
     stream.WriteLittleEndian32(page_index_.size());
-    for (auto it = page_index_.begin(); it != page_index_.end(); it++) {
-      uint32_t family = it->first;
-      uint64_t family_size = it->second.size();
+    for (auto& it : page_index_) {
+      uint32_t family = it.first;
+      uint64_t family_size = it.second.size();
 
       stream.WriteLittleEndian32(family);
       stream.WriteLittleEndian64(family_size);
-      for (uint64_t page_offset : it->second) {
+      for (uint64_t page_offset : it.second) {
         stream.WriteLittleEndian64(page_offset);
       }
     }
@@ -192,7 +197,6 @@ class FilePageStreamWriter : public PageStreamWriter {
   uint64_t written_pages_;
   DISALLOW_COPY_AND_ASSIGN(FilePageStreamWriter);
 };
-
 
 // WritableStorage which stores data in files, operating via the
 // supersonic::File interface.
@@ -235,20 +239,18 @@ class WritableFileStorage : public WritableStorage {
   DISALLOW_COPY_AND_ASSIGN(WritableFileStorage);
 };
 
-
 class FileRandomPageReader : public RandomPageReader {
  public:
-  FileRandomPageReader(File* file,
-                       std::unique_ptr<Buffer> buffer,
+  FileRandomPageReader(File* file, std::unique_ptr<Buffer> buffer,
                        BufferAllocator* allocator)
-     : file_(file),
-       buffer_(std::move(buffer)),
-       allocator_(allocator),
-       finalized_(false) {}
+      : file_(file),
+        buffer_(std::move(buffer)),
+        allocator_(allocator),
+        finalized_(false) {}
 
   virtual ~FileRandomPageReader() {
     if (!finalized_) {
-      LOG(DFATAL) << "Destroying not finalized FileRandomPageReader.";
+      LOG(DFATAL)<< "Destroying not finalized FileRandomPageReader.";
       Finalize();
     }
   }
@@ -299,10 +301,10 @@ class FileRandomPageReader : public RandomPageReader {
 
   virtual FailureOrVoid Finalize() {
     if (!finalized_ && !file_->Close()) {
-      THROW(new Exception(
-          ERROR_GENERAL_IO_ERROR,
-          "Can not close the underlying file."));
+      THROW(new Exception(ERROR_GENERAL_IO_ERROR,
+                          "Can not close the underlying file."));
     }
+
     finalized_ = true;
     return Success();
   }
@@ -323,18 +325,16 @@ class FileRandomPageReader : public RandomPageReader {
   FailureOrVoid ReadExactly(int64 offset, void* buffer, size_t length) {
     // TODO(wzoltak): Indicate which file in exceptions.
     if (!file_->Seek(offset)) {
-      THROW(new Exception(
-          ERROR_GENERAL_IO_ERROR,
-          "Unable to seek through underlying file."));
+      THROW(new Exception(ERROR_GENERAL_IO_ERROR,
+                          "Unable to seek through underlying file."));
     }
 
     uint8_t* byte_buffer = static_cast<uint8_t*>(buffer);
     do {
       int64 read_bytes = file_->Read(byte_buffer, length);
       if (read_bytes < 0) {
-        THROW(new Exception(
-            ERROR_GENERAL_IO_ERROR,
-            "Error during read from underlying file"));
+        THROW(new Exception(ERROR_GENERAL_IO_ERROR,
+                            "Error during read from underlying file"));
       } else if (read_bytes == 0) {
         THROW(new Exception(ERROR_GENERAL_IO_ERROR, "Unexpected end of file"));
       }
@@ -436,16 +436,16 @@ class ReadableFileStorage : public ReadableStorage {
  private:
   virtual FailureOrOwned<RandomPageReader> CreateRandomPageReader(
       const std::string& name) {
-    std::unique_ptr<Buffer> buffer(
-        allocator_->Allocate(kInitialPageReaderBuffer));
+    std::unique_ptr<Buffer>
+        buffer(allocator_->Allocate(kInitialPageReaderBuffer));
     if (buffer->data() == NULL) {
       THROW(new Exception(
-            ERROR_MEMORY_EXCEEDED,
-            "Can not allocate enough memory for PageStreamReader buffer."));
+          ERROR_MEMORY_EXCEEDED,
+          "Can not allocate enough memory for PageStreamReader buffer."));
     }
 
     FailureOrOwned<File> file = OpenFileForReading(name);
-        PROPAGATE_ON_FAILURE(file);
+    PROPAGATE_ON_FAILURE(file);
 
     std::unique_ptr<FileRandomPageReader>
         page_reader(new FileRandomPageReader(file.release(),
@@ -472,7 +472,6 @@ class ReadableFileStorage : public ReadableStorage {
   DISALLOW_COPY_AND_ASSIGN(ReadableFileStorage);
 };
 
-
 // Creates the ReadableStorage which reads data from files. `FileT` and
 // `PathUtilT` should be supersonic::File and supersonic::PathUtil
 // implementation. Meaning of `path` depends on chosen implementation.
@@ -483,7 +482,6 @@ FailureOrOwned<ReadableStorage>
   return Success(new ReadableFileStorage<FileT>(std::move(file_series),
                                                 allocator));
 }
-
 
 // Creates the WritableStorage which stores data in files. `FileT` and
 // `PathUtilT` should be supersonic::File and supersonic::PathUtil
