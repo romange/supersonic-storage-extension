@@ -132,17 +132,18 @@ class FilePageStreamWriter : public PageStreamWriter {
         written_pages_(0) {
   }
 
-  virtual FailureOrVoid AppendPage(uint32_t family, const Page& page) {
+  virtual FailureOr<uint64_t> AppendPage(uint32_t family, const Page& page) {
     FailureOrVoid appended =
         byte_stream_.AppendBytes(page.RawData(), page.PageHeader().total_size);
     PROPAGATE_ON_FAILURE(appended);
 
     // Note that [] operator creates empty (default constructor) value.
+    uint64_t page_number = page_index_[family].size();
     page_index_[family].emplace_back(written_bytes_);
     written_bytes_ += page.PageHeader().total_size;
 
     written_pages_++;
-    return Success();
+    return Success(page_number);
   }
 
   virtual FailureOrVoid Finalize() {

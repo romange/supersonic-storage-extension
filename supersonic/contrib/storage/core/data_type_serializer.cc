@@ -154,7 +154,7 @@ class VariableLengthSerializer : public Serializer {
       *reinterpret_cast<uint32_t*>(buffer) = string_piece_length;
       buffer += sizeof(uint32_t);
 
-      memcpy(buffer, string_piece.as_string().c_str(), string_piece_length);
+      memcpy(buffer, string_piece.data(), string_piece_length);
       buffer += string_piece_length;
     }
   }

@@ -55,6 +55,8 @@ class ColumnWriterImplementation : public ColumnWriter {
     size_t lengths[] = { row_count };
     size_t arrays = 1;
 
+    PROPAGATE_ON_FAILURE(MaybeZeroInitNullValues(column, row_count));
+
     VariantConstPointer data = column.data();
     FailureOrVoid serialize_data_result =
         data_serializer_->Serialize(page_builder_.get(),
@@ -79,6 +81,45 @@ class ColumnWriterImplementation : public ColumnWriter {
   }
 
  private:
+  // TODO(wzoltak): Function below is a dirty hack which discards const
+  //                qualifier and zero-init variant length values on null
+  //                positions. That's because there is no guarantee that
+  //                value on position marked as null is not a random garbage.
+  //                It is not a problem when dealing with fixed-widht types,
+  //                but with StringPiece it may cause Serializer to crash.
+  FailureOrVoid MaybeZeroInitNullValues(const Column& column,
+                               rowcount_t row_count) {
+    if (!column.type_info().is_variable_length() ||
+        !column.attribute().is_nullable()) {
+      return Success();
+    }
+
+    auto data_result = GetMutableVariantTypeData(column);
+    PROPAGATE_ON_FAILURE(data_result);
+    StringPiece* data = data_result.get();
+    bool_const_ptr is_null = column.is_null();
+
+    for (int i = 0; i < row_count; i++) {
+      if (is_null[i]) {
+        data[i] = StringPiece();
+      }
+    }
+    return Success();
+  }
+
+  FailureOr<StringPiece*> GetMutableVariantTypeData(const Column& column) {
+    DataType type = column.type_info().type();
+    switch (type) {
+      case BINARY:
+        return Success(const_cast<StringPiece*>(column.typed_data<BINARY>()));
+      case STRING:
+        return Success(const_cast<StringPiece*>(column.typed_data<STRING>()));
+      default:
+        THROW(new Exception(ERROR_INVALID_ARGUMENT_TYPE,
+                            StringPrintf("Unknown variant type %d", type)));
+    }
+  }
+
   std::shared_ptr<PageBuilder> page_builder_;
   int starting_from_stream_;
   DataType handled_type_;
@@ -110,11 +151,11 @@ FailureOrOwned<ColumnWriter> CreateColumnWriter(
   }
 
   return Success(new ColumnWriterImplementation(page_builder,
-                                       starting_from_stream,
-                                       attribute.type(),
-                                       write_is_null,
-                                       std::move(data_serializer),
-                                       std::move(is_null_serializer)));
+                                                starting_from_stream,
+                                                attribute.type(),
+                                                write_is_null,
+                                                std::move(data_serializer),
+                                                std::move(is_null_serializer)));
 }
 
 // For testing purposes.

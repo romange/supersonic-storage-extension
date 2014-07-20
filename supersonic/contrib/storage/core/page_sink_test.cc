@@ -41,9 +41,11 @@ FailureOrOwned<Sink> CreatePageSink(
     std::unique_ptr<std::vector<std::unique_ptr<ColumnWriter> > >
         column_writers,
     std::shared_ptr<PageBuilder> page_builder,
+    std::shared_ptr<MetadataWriter> metadata_writer,
     uint32_t page_family);
 
 namespace {
+
 
 MATCHER_P(MatchingColumn, column, "") {
   return arg.data().raw() == column->data().raw();
@@ -61,21 +63,41 @@ class MockColumnWriter : public ColumnWriter {
   }
 };
 
+
 MATCHER_P(StreamsInPage, num, "") {
   return arg.PageHeader().byte_buffers_count == num;
 }
 
+
 class MockPageStreamWriter : public PageStreamWriter {
  public:
-  MOCK_METHOD2(AppendPage, FailureOrVoid(uint32_t, const Page& page));
+  MOCK_METHOD2(AppendPage, FailureOr<uint64_t>(uint32_t, const Page& page));
   MOCK_METHOD0(Finalize, FailureOrVoid());
 
-  MockPageStreamWriter* ExpectingAppendPage(uint32_t streams_in_page) {
+  MockPageStreamWriter* ExpectingAppendPage(uint32_t streams_in_page,
+                                            uint64_t page_number) {
     EXPECT_CALL(*this, AppendPage(0, StreamsInPage(streams_in_page)))
+        .WillOnce(::testing::Return(Success(page_number)));
+    return this;
+  }
+};
+
+MATCHER_P(PageMetadataRowcount, row_count, "") {
+  return arg.row_count() == row_count;
+}
+
+class MockMetadataWriter : public MetadataWriter {
+ public:
+  MOCK_METHOD2(AppendPage, FailureOrVoid(uint32_t, const PageMetadata&));
+  MOCK_METHOD0(DumpToPage, FailureOrOwned<Page>());
+
+  MockMetadataWriter* ExpectingAppendPage(uint64_t row_count) {
+    EXPECT_CALL(*this, AppendPage(0, PageMetadataRowcount(row_count)))
         .WillOnce(::testing::Return(Success()));
     return this;
   }
 };
+
 
 class PageSinkTest : public ::testing::Test {
  protected:
@@ -107,15 +129,19 @@ class PageSinkTest : public ::testing::Test {
   }
 };
 
+
 TEST_F(PageSinkTest, DataPassedToColumnWriters) {
   TupleSchema schema = CreateSchema();
   std::unique_ptr<const BoundSingleSourceProjector> projector =
       CreateProjector(schema);
   std::unique_ptr<Table> table = CreateTableWithData(schema);
   std::shared_ptr<PageStreamWriter> page_stream(
-      (new MockPageStreamWriter())->ExpectingAppendPage(3));
-  std::unique_ptr<PageBuilder> page_builder(
-      new PageBuilder(3, HeapBufferAllocator::Get()));
+      (new MockPageStreamWriter())->ExpectingAppendPage(3, 0));
+  std::shared_ptr<PageBuilder>
+      page_builder(new PageBuilder(3, HeapBufferAllocator::Get()));
+  std::shared_ptr<MetadataWriter>
+      metadata_writer((new MockMetadataWriter())
+          ->ExpectingAppendPage(table->row_count()));
 
   std::unique_ptr<std::vector<std::unique_ptr<ColumnWriter> > >
       column_writers(new std::vector<std::unique_ptr<ColumnWriter> >());
@@ -130,27 +156,31 @@ TEST_F(PageSinkTest, DataPassedToColumnWriters) {
       CreatePageSink(std::move(projector),
                      page_stream,
                      std::move(column_writers),
-                     std::move(page_builder),
+                     page_builder,
+                     metadata_writer,
                      0 /* page family */);
   ASSERT_TRUE(page_sink_result.is_success());
   std::unique_ptr<Sink> page_sink(page_sink_result.release());
 
   FailureOr<rowcount_t> written_rows = page_sink->Write(table->view());
   ASSERT_TRUE(written_rows.is_success());
-  ASSERT_EQ(table->view().row_count(), written_rows.get());
+  ASSERT_EQ(table->row_count(), written_rows.get());
 
   ASSERT_TRUE(page_sink->Finalize().is_success());
 }
+
 
 TEST_F(PageSinkTest, FinalizeFinalizesStream) {
   TupleSchema schema;
   std::unique_ptr<const BoundSingleSourceProjector> projector =
       CreateProjector(schema);
   std::shared_ptr<PageStreamWriter> page_stream(new MockPageStreamWriter());
+  std::shared_ptr<MetadataWriter> metadata_writer(new MockMetadataWriter());
 
   FailureOrOwned<Sink> page_sink_result =
       CreatePageSink(std::move(projector),
                      page_stream,
+                     metadata_writer,
                      0 /* page family */,
                      HeapBufferAllocator::Get());
   ASSERT_TRUE(page_sink_result.is_success());
@@ -161,35 +191,46 @@ TEST_F(PageSinkTest, FinalizeFinalizesStream) {
   ASSERT_TRUE(page_sink->Write(view).is_failure());
 }
 
+
 TEST_F(PageSinkTest, FinalizingDumpsLastPage) {
   TupleSchema schema = CreateSchema();
+  std::unique_ptr<Table> table = CreateTableWithData(schema);
+
   std::unique_ptr<const BoundSingleSourceProjector> projector =
       CreateProjector(schema);
   std::shared_ptr<MockPageStreamWriter> page_stream(
-      (new MockPageStreamWriter())->ExpectingAppendPage(3));
+      (new MockPageStreamWriter())->ExpectingAppendPage(3, 0));
+  std::shared_ptr<MockMetadataWriter>
+      metadata_writer((new MockMetadataWriter())
+          ->ExpectingAppendPage(table->row_count()));
 
   FailureOrOwned<Sink> page_sink_result =
       CreatePageSink(std::move(projector),
                      page_stream,
+                     metadata_writer,
                      0 /* page family */,
                      HeapBufferAllocator::Get());
   ASSERT_TRUE(page_sink_result.is_success());
   std::unique_ptr<Sink> page_sink(page_sink_result.release());
 
   // Write very small portion of data, so it won't trigger writing to stream.
-  std::unique_ptr<Table> table = CreateTableWithData(schema);
-
   FailureOr<rowcount_t> written_rows = page_sink->Write(table->view());
   ASSERT_TRUE(written_rows.is_success());
-  ASSERT_EQ(table->view().row_count(), written_rows.get());
+  ASSERT_EQ(table->row_count(), written_rows.get());
 
   ASSERT_TRUE(page_sink->Finalize().is_success());
 }
 
+
 TEST_F(PageSinkTest, IsUsingProjector) {
   TupleSchema schema = CreateSchema();
+  std::unique_ptr<Table> table = CreateTableWithData(schema);
+
   std::shared_ptr<MockPageStreamWriter> page_stream(
-      (new MockPageStreamWriter())->ExpectingAppendPage(2));
+      (new MockPageStreamWriter())->ExpectingAppendPage(2, 0));
+  std::shared_ptr<MetadataWriter>
+      metadata_writer((new MockMetadataWriter())
+          ->ExpectingAppendPage(table->row_count()));
 
   NamedAttributeProjector unbound_projector("B");
   FailureOrOwned<const BoundSingleSourceProjector> projector_result =
@@ -201,12 +242,12 @@ TEST_F(PageSinkTest, IsUsingProjector) {
   FailureOrOwned<Sink> page_sink_result =
       CreatePageSink(std::move(projector),
                      page_stream,
+                     metadata_writer,
                      0 /* page family */,
                      HeapBufferAllocator::Get());
   ASSERT_TRUE(page_sink_result.is_success());
   std::unique_ptr<Sink> page_sink(page_sink_result.release());
 
-  std::unique_ptr<Table> table = CreateTableWithData(schema);
 
   FailureOr<rowcount_t> written_rows = page_sink->Write(table->view());
   ASSERT_TRUE(written_rows.is_success());

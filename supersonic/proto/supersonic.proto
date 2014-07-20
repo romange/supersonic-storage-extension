@@ -146,12 +146,20 @@ message AttributeProto {
   optional CardinalityType cardinality = 5;
 }
 
-// Describes a partitoned schema e.g. in persistent storage.
-message PartitionedSchema {
-  repeated AttributeFamily attribute_family = 1;
+
+// TODO(wzoltak): move messages below into a separate proto in contrib/storage?
+
+message StorageMetadata {
+  repeated PageFamily page_families = 1;
 }
 
-message AttributeFamily {
+message PageFamily {
   required int32 family_number = 1;
-  required SchemaProto schema = 2;
+  required SchemaProto schema  = 2;
+  repeated PageMetadata pages  = 3;
+}
+
+message PageMetadata {
+  required uint64 page_number  = 1;
+  required uint64 row_count    = 2;
 }

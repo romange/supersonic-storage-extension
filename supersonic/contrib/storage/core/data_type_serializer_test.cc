@@ -24,7 +24,6 @@
 #include "supersonic/base/infrastructure/types.h"
 #include "supersonic/base/infrastructure/tuple_schema.h"
 #include "supersonic/cursor/infrastructure/table.h"
-#include "supersonic/proto/supersonic.pb.h"
 
 
 namespace supersonic {
@@ -185,18 +184,21 @@ TEST_F(DataTypeSerializerTest, TestVariableLength) {
 
   std::string binary_a("a\0b\0", 4);
   std::string binary_b("0x1234", 6);
+  std::string binary_empty("", 0);
   std::string string_a("abcde", 5);
   std::string string_b("Hey Joe!", 8);
+  std::string string_empty("", 0);
   table_writer
       .AddRow().Binary(binary_a).String(string_a)
-      .AddRow().Binary(binary_b).Null()
-      .AddRow().Null().String(string_b)
+      .AddRow().Binary(binary_b).String(string_empty)
+      .AddRow().Binary(binary_empty).String(string_b)
       .CheckSuccess();
 
   // BINARY
   const TypeTraits<BINARY>::cpp_type* binary_data =
       table.view().column(0).typed_data<BINARY>();
   const size_t binary_lengths[] = { 2, 1 };
+  printf("[zzzz] %d\n", binary_data[2].length());
   Serialize<BINARY>(binary_data, binary_lengths, 2, &page, &data,
       &byte_buffer_header);
 

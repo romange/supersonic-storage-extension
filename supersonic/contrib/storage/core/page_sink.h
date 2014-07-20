@@ -21,6 +21,7 @@
 #include "supersonic/base/infrastructure/types.h"
 #include "supersonic/base/infrastructure/projector.h"
 #include "supersonic/contrib/storage/base/page_stream_writer.h"
+#include "supersonic/contrib/storage/base/storage_metadata.h"
 #include "supersonic/cursor/infrastructure/writer.h"
 #include "supersonic/utils/macros.h"
 
@@ -32,6 +33,7 @@ namespace supersonic {
 FailureOrOwned<Sink> CreatePageSink(
     std::unique_ptr<const BoundSingleSourceProjector> projector,
     std::shared_ptr<PageStreamWriter> page_stream_writer,
+    std::shared_ptr<MetadataWriter> metadata_writer,
     uint32_t page_family,
     BufferAllocator* buffer_allocator);
 

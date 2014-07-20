@@ -25,9 +25,8 @@
 #include "supersonic/base/infrastructure/projector.h"
 #include "supersonic/base/memory/memory.h"
 #include "supersonic/contrib/storage/base/storage.h"
-#include "supersonic/contrib/storage/core/merging_page_stream_reader.h"
+#include "supersonic/contrib/storage/base/storage_metadata.h"
 #include "supersonic/contrib/storage/core/page_reader.h"
-#include "supersonic/contrib/storage/core/schema_serialization.h"
 #include "supersonic/cursor/base/operation.h"
 #include "supersonic/cursor/core/coalesce.h"
 #include "supersonic/cursor/infrastructure/basic_cursor.h"
@@ -65,17 +64,21 @@ class StorageScanCursor : public BasicCursor {
 
 // For each given page family description creates a PageReader object.
 FailureOrOwned<std::vector<Cursor*>>
-    CreatePageReaders(const std::vector<Family>& partitioned_schema,
+    CreatePageReaders(const StorageMetadata& storage_metadata,
                       std::shared_ptr<RandomPageReader> page_reader,
                       BufferAllocator* allocator) {
   std::unique_ptr<std::vector<Cursor*>>
       page_readers(new std::vector<Cursor*>());
 
-  for (const Family& family : partitioned_schema) {
+  for (const PageFamily& family : storage_metadata.page_families()) {
+    auto family_tuple_schema =
+        SchemaConverter::SchemaProtoToTupleSchema(family.schema());
+    PROPAGATE_ON_FAILURE(family_tuple_schema);
+
     FailureOrOwned<Cursor> page_reader_result =
-        PageReader(family.second,
+        PageReader(family_tuple_schema.get(),
                    page_reader,
-                   family.first,
+                   family.family_number(),
                    allocator);
     PROPAGATE_ON_FAILURE(page_reader_result);
     page_readers->push_back(page_reader_result.release());
@@ -102,13 +105,13 @@ FailureOrOwned<Cursor>
   FailureOr<const Page*> page_result =
       random_page_reader->GetPage(kMetadataPageFamily, 0 /* page number */);
   PROPAGATE_ON_FAILURE(page_result);
-  FailureOrOwned<std::vector<std::pair<uint32_t, const TupleSchema>>>
-      partitioned_schema = ReadPartitionedSchemaPage(*page_result.get());
-  PROPAGATE_ON_FAILURE(partitioned_schema);
+  FailureOrOwned<StorageMetadata> storage_metadata =
+      ReadStorageMetadata(*page_result.get());
+  PROPAGATE_ON_FAILURE(storage_metadata);
 
   // Create readers
   FailureOrOwned<std::vector<Cursor*>> page_readers_result =
-      CreatePageReaders(*partitioned_schema, random_page_reader, allocator);
+      CreatePageReaders(*storage_metadata, random_page_reader, allocator);
   PROPAGATE_ON_FAILURE(page_readers_result);
 
   FailureOrOwned<Cursor> coalesce_result = BoundCoalesce(*page_readers_result);

@@ -24,8 +24,11 @@
 #include "supersonic/contrib/storage/base/serializer.h"
 #include "supersonic/contrib/storage/base/column_writer.h"
 #include "supersonic/contrib/storage/core/data_type_serializer.h"
+#include "supersonic/contrib/storage/base/storage_metadata.h"
 #include "supersonic/contrib/storage/core/page_builder.h"
 #include "supersonic/utils/exception/failureor.h"
+
+#include "supersonic/proto/supersonic.pb.h"
 
 
 namespace supersonic {
@@ -40,6 +43,7 @@ class PageSink : public Sink {
       std::unique_ptr<
           std::vector<std::unique_ptr<ColumnWriter>>> column_writers,
       std::shared_ptr<PageBuilder> page_builder,
+      std::shared_ptr<MetadataWriter> metadata_writer,
       uint32_t page_family)
       : finalized_(false),
         builder_dirty_(false),
@@ -47,8 +51,9 @@ class PageSink : public Sink {
         page_stream_writer_(page_stream_writer),
         column_writers_(std::move(column_writers)),
         page_builder_(page_builder),
-        page_family_(page_family) {
-  }
+        metadata_writer_(metadata_writer),
+        page_family_(page_family),
+        rows_in_page_(0) {}
 
   virtual ~PageSink() {
     if (!finalized_) {
@@ -77,6 +82,7 @@ class PageSink : public Sink {
       PROPAGATE_ON_FAILURE(write_result);
     }
     builder_dirty_ = builder_dirty_ || projected_data.row_count() > 0;
+    rows_in_page_ += data.row_count();
 
     if (page_builder_->PageSize() > kPageSizeLimit) {
       FailureOrVoid written_page = WritePage();
@@ -101,9 +107,19 @@ class PageSink : public Sink {
     PROPAGATE_ON_FAILURE(page_result);
     std::unique_ptr<Page> page(page_result.release());
 
-    PROPAGATE_ON_FAILURE(page_stream_writer_->AppendPage(page_family_, *page));
+    auto page_number = page_stream_writer_->AppendPage(page_family_, *page);
+    PROPAGATE_ON_FAILURE(page_number);
+
+    PageMetadata page_metadata;
+    page_metadata.set_page_number(page_number.get());
+    page_metadata.set_row_count(rows_in_page_);
+
+    PROPAGATE_ON_FAILURE(
+        metadata_writer_->AppendPage(page_family_, page_metadata));
+
     page_builder_->Reset();
     builder_dirty_ = false;
+    rows_in_page_ = 0;
 
     return Success();
   }
@@ -114,13 +130,16 @@ class PageSink : public Sink {
   std::shared_ptr<PageStreamWriter> page_stream_writer_;
   std::unique_ptr<std::vector<std::unique_ptr<ColumnWriter> > > column_writers_;
   std::shared_ptr<PageBuilder> page_builder_;
+  std::shared_ptr<MetadataWriter> metadata_writer_;
   uint32_t page_family_;
+  uint64 rows_in_page_;
   DISALLOW_COPY_AND_ASSIGN(PageSink);
 };
 
 FailureOrOwned<Sink> CreatePageSink(
     std::unique_ptr<const BoundSingleSourceProjector> projector,
     std::shared_ptr<PageStreamWriter> page_stream_writer,
+    std::shared_ptr<MetadataWriter> metadata_writer,
     uint32_t page_family,
     BufferAllocator* buffer_allocator) {
   std::unique_ptr<std::vector<std::unique_ptr<ColumnWriter> > > serializers(
@@ -145,7 +164,8 @@ FailureOrOwned<Sink> CreatePageSink(
       new PageSink(std::move(projector),
                    page_stream_writer,
                    std::move(serializers),
-                   std::move(page_builder),
+                   page_builder,
+                   metadata_writer,
                    page_family));
   return Success(sink.release());
 }
@@ -157,12 +177,14 @@ FailureOrOwned<Sink> CreatePageSink(
     std::unique_ptr<
         std::vector<std::unique_ptr<ColumnWriter> > > column_writers,
     std::shared_ptr<PageBuilder> page_builder,
+    std::shared_ptr<MetadataWriter> metadata_writer,
     uint32_t page_family) {
   std::unique_ptr<PageSink> page_sink(
       new PageSink(std::move(projector),
                    page_stream_writer,
                    std::move(column_writers),
                    page_builder,
+                   metadata_writer,
                    page_family));
   return Success(page_sink.release());
 }

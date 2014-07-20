@@ -29,11 +29,10 @@
 #include "supersonic/contrib/storage/base/byte_stream_writer.h"
 #include "supersonic/contrib/storage/base/page_stream_writer.h"
 #include "supersonic/contrib/storage/base/schema_partitioner.h"
+#include "supersonic/contrib/storage/base/storage_metadata.h"
 #include "supersonic/contrib/storage/core/file_storage.h"
 #include "supersonic/contrib/storage/core/page_builder.h"
 #include "supersonic/contrib/storage/core/page_sink.h"
-#include "supersonic/contrib/storage/core/schema_serialization.h"
-#include "supersonic/contrib/storage/core/slicing_page_stream_writer.h"
 #include "supersonic/contrib/storage/util/schema_converter.h"
 #include "supersonic/contrib/storage/util/path_util.h"
 #include "supersonic/utils/exception/failureor.h"
@@ -60,10 +59,12 @@ class StorageSink : public Sink {
 
   StorageSink(std::unique_ptr<PageSinkVector> page_sinks,
               std::unique_ptr<SingleSourceProjectorVector> projectors,
-              std::shared_ptr<PageStreamWriter> page_stream_writer)
+              std::shared_ptr<PageStreamWriter> page_stream_writer,
+              std::shared_ptr<MetadataWriter> metadata_writer)
       : page_sinks_(std::move(page_sinks)),
         projectors_(std::move(projectors)),
         page_stream_writer_(page_stream_writer),
+        metadata_writer_(metadata_writer),
         finalized_(false) {}
 
   virtual ~StorageSink() {
@@ -98,15 +99,26 @@ class StorageSink : public Sink {
       FailureOrVoid result = page_sink->Finalize();
       PROPAGATE_ON_FAILURE(result);
     }
+    PROPAGATE_ON_FAILURE(WriteMetadata());
     PROPAGATE_ON_FAILURE(page_stream_writer_->Finalize());
     finalized_ = true;
     return Success();
   }
 
  private:
+  FailureOrVoid WriteMetadata() {
+    auto metadata_page_result = metadata_writer_->DumpToPage();
+    PROPAGATE_ON_FAILURE(metadata_page_result);
+    PROPAGATE_ON_FAILURE(
+        page_stream_writer_->AppendPage(kMetadataPageFamily,
+                                        *metadata_page_result));
+    return Success();
+  }
+
   std::unique_ptr<PageSinkVector> page_sinks_;
   std::unique_ptr<SingleSourceProjectorVector> projectors_;
   std::shared_ptr<PageStreamWriter> page_stream_writer_;
+  std::shared_ptr<MetadataWriter> metadata_writer_;
   bool finalized_;
   DISALLOW_COPY_AND_ASSIGN(StorageSink);
 };
@@ -141,6 +153,7 @@ FailureOrOwned<std::vector<std::unique_ptr<Sink>>>
     CreatePageSinks(const std::vector<Family>& families,
                     TupleSchema schema,
                     std::shared_ptr<PageStreamWriter> page_stream,
+                    std::shared_ptr<MetadataWriter> metadata_writer,
                     BufferAllocator* allocator) {
   std::unique_ptr<std::vector<std::unique_ptr<Sink>>>
       page_sinks(new std::vector<std::unique_ptr<Sink>>);
@@ -157,6 +170,7 @@ FailureOrOwned<std::vector<std::unique_ptr<Sink>>>
     FailureOrOwned<Sink> page_sink =
           CreatePageSink(std::move(bound_projector),
                          page_stream,
+                         metadata_writer,
                          family.first,
                          allocator);
     PROPAGATE_ON_FAILURE(page_sink);
@@ -194,36 +208,42 @@ FailureOrOwned<Sink> CreateFileStorageSink(
   std::unique_ptr<std::vector<Family>> families
       = EnumeratePartitions(*partitions, kFirstDataPageFamily);
 
-  // Write schema
-  FailureOrOwned<Page> schema_page_result =
-      CreatePartitionedSchemaPage(*families, allocator);
-  PROPAGATE_ON_FAILURE(schema_page_result);
-  // TODO(wzoltak): magic constant
-  PROPAGATE_ON_FAILURE(
-      page_stream->AppendPage(kMetadataPageFamily, *schema_page_result.get()));
+  // Create MetadataWriter
+  FailureOrOwned<MetadataWriter> metadata_writer_result =
+      CreateMetadataWriter(*families, allocator);
+  PROPAGATE_ON_FAILURE(metadata_writer_result);
+  std::shared_ptr<MetadataWriter>
+      metadata_writer(metadata_writer_result.release());
 
   // Create PageSinks
   FailureOrOwned<vector<std::unique_ptr<Sink>>> page_sinks_result =
-      CreatePageSinks(*families, schema, page_stream, allocator);
+      CreatePageSinks(*families,
+                      schema,
+                      page_stream,
+                      metadata_writer,
+                      allocator);
   PROPAGATE_ON_FAILURE(page_sinks_result);
   std::unique_ptr<std::vector<std::unique_ptr<Sink>>>
       page_sinks(page_sinks_result.release());
 
   return Success(new StorageSink(std::move(page_sinks),
                                  std::move(projectors),
-                                 page_stream));
+                                 page_stream,
+                                 metadata_writer));
 }
 
 // For testing purposes only.
 FailureOrOwned<Sink> CreateStorageSink(
     std::unique_ptr<std::vector<std::unique_ptr<Sink>>> page_sinks,
-    std::shared_ptr<PageStreamWriter> page_stream) {
+    std::shared_ptr<PageStreamWriter> page_stream,
+    std::shared_ptr<MetadataWriter> metadata_writer) {
   std::unique_ptr<std::vector<
       std::unique_ptr<const SingleSourceProjector>>> projectors(
           new std::vector<std::unique_ptr<const SingleSourceProjector>>());
   return Success(new StorageSink(std::move(page_sinks),
                                  std::move(projectors),
-                                 page_stream));
+                                 page_stream,
+                                 metadata_writer));
 }
 
 }  // namespace supersonic

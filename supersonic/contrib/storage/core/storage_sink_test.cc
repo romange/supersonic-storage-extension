@@ -26,6 +26,7 @@
 #include "supersonic/base/exception/result.h"
 #include "supersonic/base/memory/memory.h"
 #include "supersonic/contrib/storage/base/storage.h"
+#include "supersonic/contrib/storage/base/storage_metadata.h"
 #include "supersonic/contrib/storage/core/page_sink.h"
 #include "supersonic/contrib/storage/util/schema_converter.h"
 #include "supersonic/cursor/infrastructure/table.h"
@@ -38,7 +39,8 @@ namespace supersonic {
 
 FailureOrOwned<Sink> CreateStorageSink(
     std::unique_ptr<std::vector<std::unique_ptr<Sink>>> page_sinks,
-    std::shared_ptr<PageStreamWriter> page_stream);
+    std::shared_ptr<PageStreamWriter> page_stream,
+    std::shared_ptr<MetadataWriter> metadata_writer);
 
 namespace {
 
@@ -62,8 +64,14 @@ class MockPageSink : public Sink {
 
 class MockPageStreamWriter : public PageStreamWriter {
  public:
-  MOCK_METHOD2(AppendPage, FailureOrVoid(uint32_t, const Page&));
+  MOCK_METHOD2(AppendPage, FailureOr<uint64_t>(uint32_t, const Page&));
   MOCK_METHOD0(Finalize, FailureOrVoid());
+
+  MockPageStreamWriter* ExpectAppendPage(const Page& page) {
+    EXPECT_CALL(*this, AppendPage(0, ::testing::Ref(page)))
+        .WillOnce(::testing::Return(Success(0)));
+    return this;
+  }
 
   MockPageStreamWriter* ExpectFinalize() {
     EXPECT_CALL(*this, Finalize()).WillOnce(::testing::Return(Success()));
@@ -71,9 +79,25 @@ class MockPageStreamWriter : public PageStreamWriter {
   }
 };
 
+class MockMetadataWriter : public MetadataWriter {
+ public:
+  MOCK_METHOD2(AppendPage, FailureOrVoid(uint32_t, const PageMetadata&));
+  MOCK_METHOD0(DumpToPage, FailureOrOwned<Page>());
+
+  MockMetadataWriter* ExpectDumpToPage(std::unique_ptr<Page> page) {
+    EXPECT_CALL(*this, DumpToPage())
+        .WillOnce(::testing::Return(Success(page.release())));
+    return this;
+  }
+};
+
 
 class StorageSinkTest : public ::testing::Test {
  protected:
+  void SetUp() {
+    CreateMetadataPage();
+  }
+
   TupleSchema CreateTupleSchema() {
     TupleSchema schema;
     schema.add_attribute(Attribute("A", INT32, NULLABLE));
@@ -87,6 +111,16 @@ class StorageSinkTest : public ::testing::Test {
                                                   &serialized_schema);
     return serialized_schema;
   }
+
+  std::unique_ptr<Page> metadata_page;
+
+ private:
+  std::unique_ptr<Page> CreateMetadataPage() {
+    PageBuilder page_builder(0, HeapBufferAllocator::Get());
+    auto page_result = page_builder.CreatePage();
+    page_result.mark_checked();
+    return std::unique_ptr<Page>(page_result.release());
+  }
 };
 
 
@@ -98,13 +132,19 @@ MATCHER_P2(EqualsBuffer, buffer, length, "") {
 TEST_F(StorageSinkTest, WritingToFinalizedThrows) {
   std::unique_ptr<std::vector<std::unique_ptr<Sink>>> page_sinks(
       new std::vector<std::unique_ptr<Sink>>());
-  std::shared_ptr<PageStreamWriter>
-        page_stream((new MockPageStreamWriter)->ExpectFinalize());
+  std::shared_ptr<PageStreamWriter> page_stream(
+      (new MockPageStreamWriter)
+          ->ExpectAppendPage(*metadata_page)->ExpectFinalize());
+
+  std::shared_ptr<MetadataWriter>
+      metadata_writer(
+          (new MockMetadataWriter)->ExpectDumpToPage(std::move(metadata_page)));
+
   TupleSchema schema;
   Table table(schema, HeapBufferAllocator::Get());
 
   FailureOrOwned<Sink> storage_sink_result =
-      CreateStorageSink(std::move(page_sinks), page_stream);
+      CreateStorageSink(std::move(page_sinks), page_stream, metadata_writer);
   ASSERT_TRUE(storage_sink_result.is_success());
   std::unique_ptr<Sink> storage_sink(storage_sink_result.release());
 
@@ -112,18 +152,21 @@ TEST_F(StorageSinkTest, WritingToFinalizedThrows) {
   ASSERT_TRUE(storage_sink->Write(table.view()).is_failure());
 }
 
-TEST_F(StorageSinkTest, FinalizesAffectsPageSinks) {
+TEST_F(StorageSinkTest, FinalizesAffectsPageSinksAndMetadata) {
   std::unique_ptr<std::vector<std::unique_ptr<Sink> > > page_sinks(
       new std::vector<std::unique_ptr<Sink> >());
   page_sinks->emplace_back((new MockPageSink())->ExpectFinalize());
   page_sinks->emplace_back((new MockPageSink())->ExpectFinalize());
-  std::shared_ptr<PageStreamWriter>
-      page_stream((new MockPageStreamWriter)->ExpectFinalize());
+  std::shared_ptr<PageStreamWriter> page_stream(
+      (new MockPageStreamWriter)
+          ->ExpectAppendPage(*metadata_page)->ExpectFinalize());
+  std::shared_ptr<MetadataWriter> metadata_writer(
+      (new MockMetadataWriter())->ExpectDumpToPage(std::move(metadata_page)));
 
   TupleSchema schema = CreateTupleSchema();
 
   FailureOrOwned<Sink> storage_sink_result =
-      CreateStorageSink(std::move(page_sinks), page_stream);
+      CreateStorageSink(std::move(page_sinks), page_stream, metadata_writer);
   ASSERT_TRUE(storage_sink_result.is_success());
   std::unique_ptr<Sink> storage_sink(storage_sink_result.release());
 
@@ -140,11 +183,14 @@ TEST_F(StorageSinkTest, DataIsPassedToPageSinks) {
       (new MockPageSink())->ExpectFinalize()->ExpectWrite(view));
   page_sinks->emplace_back(
       (new MockPageSink())->ExpectFinalize()->ExpectWrite(view));
-  std::shared_ptr<PageStreamWriter>
-      page_stream((new MockPageStreamWriter)->ExpectFinalize());
+  std::shared_ptr<PageStreamWriter> page_stream(
+      (new MockPageStreamWriter)
+          ->ExpectAppendPage(*metadata_page)->ExpectFinalize());
+  std::shared_ptr<MetadataWriter> metadata_writer(
+      (new MockMetadataWriter())->ExpectDumpToPage(std::move(metadata_page)));
 
   FailureOrOwned<Sink> storage_sink_result =
-      CreateStorageSink(std::move(page_sinks), page_stream);
+      CreateStorageSink(std::move(page_sinks), page_stream, metadata_writer);
   ASSERT_TRUE(storage_sink_result.is_success());
   std::unique_ptr<Sink> storage_sink(storage_sink_result.release());
 
