@@ -29,6 +29,7 @@ namespace supersonic {
 // storage.
 FailureOrOwned<Cursor>
     FileStorageScan(std::unique_ptr<ReadableStorage> storage,
+                    rowcount_t startring_from_row,
                     BufferAllocator* allocator);
 
 }  // namespace supersonic

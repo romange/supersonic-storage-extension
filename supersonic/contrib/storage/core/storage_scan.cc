@@ -66,19 +66,16 @@ class StorageScanCursor : public BasicCursor {
 FailureOrOwned<std::vector<Cursor*>>
     CreatePageReaders(const StorageMetadata& storage_metadata,
                       std::shared_ptr<RandomPageReader> page_reader,
+                      rowcount_t starting_from_row,
                       BufferAllocator* allocator) {
   std::unique_ptr<std::vector<Cursor*>>
       page_readers(new std::vector<Cursor*>());
 
   for (const PageFamily& family : storage_metadata.page_families()) {
-    auto family_tuple_schema =
-        SchemaConverter::SchemaProtoToTupleSchema(family.schema());
-    PROPAGATE_ON_FAILURE(family_tuple_schema);
-
     FailureOrOwned<Cursor> page_reader_result =
-        PageReader(family_tuple_schema.get(),
-                   page_reader,
-                   family.family_number(),
+        PageReader(page_reader,
+                   family,
+                   starting_from_row,
                    allocator);
     PROPAGATE_ON_FAILURE(page_reader_result);
     page_readers->push_back(page_reader_result.release());
@@ -92,6 +89,7 @@ FailureOrOwned<std::vector<Cursor*>>
 
 FailureOrOwned<Cursor>
     FileStorageScan(std::unique_ptr<ReadableStorage> storage,
+                    rowcount_t starting_from_row,
                     BufferAllocator* allocator) {
   // Create PageStreamReader
   // Ownership will be shared between PageReaders.
@@ -103,7 +101,7 @@ FailureOrOwned<Cursor>
 
   // Read schema
   FailureOr<const Page*> page_result =
-      random_page_reader->GetPage(kMetadataPageFamily, 0 /* page number */);
+      random_page_reader->GetPage(kMetadataPageFamily, 0);
   PROPAGATE_ON_FAILURE(page_result);
   FailureOrOwned<StorageMetadata> storage_metadata =
       ReadStorageMetadata(*page_result.get());
@@ -111,11 +109,15 @@ FailureOrOwned<Cursor>
 
   // Create readers
   FailureOrOwned<std::vector<Cursor*>> page_readers_result =
-      CreatePageReaders(*storage_metadata, random_page_reader, allocator);
+      CreatePageReaders(*storage_metadata,
+                        random_page_reader,
+                        starting_from_row,
+                        allocator);
   PROPAGATE_ON_FAILURE(page_readers_result);
 
   FailureOrOwned<Cursor> coalesce_result = BoundCoalesce(*page_readers_result);
   PROPAGATE_ON_FAILURE(coalesce_result);
+
   std::unique_ptr<Cursor> coalesce(coalesce_result.release());
 
   TupleSchema coalesce_schema = coalesce->schema();

@@ -28,9 +28,9 @@ namespace supersonic {
 // Creates a Cursor which reads data described by `schema` from given page
 // stream.
 FailureOrOwned<Cursor> PageReader(
-    TupleSchema schema,
     std::shared_ptr<RandomPageReader> page_reader,
-    uint32_t page_family,
+    const PageFamily& page_family,
+    rowcount_t starting_from_row,
     BufferAllocator* allocator);
 
 }  // namespace supersonic

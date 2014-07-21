@@ -120,12 +120,17 @@ TEST_F(IntegrationTest, FullFlow) {
   std::unique_ptr<ReadableStorage>
       readable_storage(readable_storage_result.release());
 
+  const rowcount_t starting_from_row = 12412;
   FailureOrOwned<Cursor> storage_scan_result =
-      FileStorageScan(std::move(readable_storage), allocator);
+      FileStorageScan(std::move(readable_storage),
+                      starting_from_row,
+                      allocator);
   ASSERT_TRUE(storage_scan_result.is_success());
   std::unique_ptr<Cursor> storage_scan(storage_scan_result.release());
 
   std::unique_ptr<Validator> validator = generator.CreateValidator();
+  validator->Skip(starting_from_row);
+  written -= starting_from_row;
   while (written > 0) {
     ResultView result_view = storage_scan->Next(20000);
     ASSERT_TRUE(result_view.has_data());

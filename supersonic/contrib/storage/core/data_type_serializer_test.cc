@@ -198,7 +198,6 @@ TEST_F(DataTypeSerializerTest, TestVariableLength) {
   const TypeTraits<BINARY>::cpp_type* binary_data =
       table.view().column(0).typed_data<BINARY>();
   const size_t binary_lengths[] = { 2, 1 };
-  printf("[zzzz] %d\n", binary_data[2].length());
   Serialize<BINARY>(binary_data, binary_lengths, 2, &page, &data,
       &byte_buffer_header);
 
