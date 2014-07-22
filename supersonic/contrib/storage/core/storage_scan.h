@@ -25,11 +25,35 @@
 
 namespace supersonic {
 
+class DataStorage {
+ public:
+  virtual ~DataStorage() {}
+  virtual const StorageMetadata& Metadata() const = 0;
+  virtual const TupleSchema& ContentsSchema() const = 0;
+  virtual FailureOrOwned<Cursor>
+      CreateScanCursor(rowcount_t starting_from_row) = 0;
+  virtual FailureOrOwned<Cursor>
+      CreateScanCursor(rowcount_t starting_from_row,
+                       const TupleSchema& output_schema) = 0;
+};
+
+FailureOrOwned<DataStorage>
+    CreateDataStorage(std::unique_ptr<ReadableStorage> readable_storage,
+                      BufferAllocator* allocator);
+
+
 // Creates a Cursor which reads data from given storage. Takes ownership over
 // storage.
 FailureOrOwned<Cursor>
     FileStorageScan(std::unique_ptr<ReadableStorage> storage,
                     rowcount_t startring_from_row,
+                    BufferAllocator* allocator);
+
+
+FailureOrOwned<Cursor>
+    FileStorageScan(std::unique_ptr<ReadableStorage> storage,
+                    rowcount_t startring_from_row,
+                    const TupleSchema& schema,
                     BufferAllocator* allocator);
 
 }  // namespace supersonic

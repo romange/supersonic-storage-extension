@@ -282,6 +282,25 @@ class Validator {
     delete[] zeroes;
   }
 
+  // TODO(wzoltak): Quite ugly. Do better?
+  void ShrinkTo(const std::vector<int>& columns) {
+    TupleSchema new_schema;
+    std::set<int> columns_set(columns.begin(), columns.end());
+
+    int removed = 0;
+    for (int i = 0; i < schema_.attribute_count(); i++) {
+      if (columns_set.find(i) == columns_set.end()) {
+        int j = i - removed;
+        validators_.erase(validators_.begin() + 2 * j + 1);
+        validators_.erase(validators_.begin() + 2 * j);
+        removed++;
+      } else {
+        new_schema.add_attribute(schema_.attribute(i));
+      }
+    }
+    schema_ = new_schema;
+  }
+
   // Skips `row_count` from validation. Allows validation starting from
   // particular row.
   void Skip(rowcount_t row_count) {

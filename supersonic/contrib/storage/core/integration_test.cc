@@ -120,20 +120,42 @@ TEST_F(IntegrationTest, FullFlow) {
   std::unique_ptr<ReadableStorage>
       readable_storage(readable_storage_result.release());
 
-  const rowcount_t starting_from_row = 12412;
+
+  TupleSchema zzz;
+  zzz.add_attribute(Attribute("magic index", DOUBLE, NOT_NULLABLE));
+  zzz.add_attribute(Attribute("nickname", STRING, NULLABLE));
+  zzz.add_attribute(Attribute("birthday", DATE, NOT_NULLABLE));
+
+
+  std::vector<int> columns;
+  columns.push_back(2);
+  columns.push_back(3);
+  columns.push_back(4);
+
+
+  FailureOrOwned<DataStorage> data_storage_result =
+      CreateDataStorage(std::move(readable_storage),
+                        allocator);
+  ASSERT_TRUE(data_storage_result.is_success());
+  std::unique_ptr<DataStorage> data_storage(data_storage_result.release());
+
+  const rowcount_t starting_from_row = 0;
   FailureOrOwned<Cursor> storage_scan_result =
-      FileStorageScan(std::move(readable_storage),
-                      starting_from_row,
-                      allocator);
+      data_storage->CreateScanCursor(starting_from_row, zzz);
+  if (storage_scan_result.is_failure()) {
+    printf("%s\n", storage_scan_result.exception().ToString().c_str());
+  }
   ASSERT_TRUE(storage_scan_result.is_success());
   std::unique_ptr<Cursor> storage_scan(storage_scan_result.release());
 
   std::unique_ptr<Validator> validator = generator.CreateValidator();
+  validator->ShrinkTo(columns);
   validator->Skip(starting_from_row);
   written -= starting_from_row;
   while (written > 0) {
     ResultView result_view = storage_scan->Next(20000);
     ASSERT_TRUE(result_view.has_data());
+
     validator->Validate(result_view.view());
     written -= result_view.view().row_count();
   }

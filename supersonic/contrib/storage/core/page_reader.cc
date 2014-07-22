@@ -53,6 +53,7 @@ class PageReaderCursor : public BasicCursor {
   ~PageReaderCursor() {
     // Note that page reader is shared and Finalize may be called multiple
     // times, but due to its idempotent nature everything is OK.
+    // TODO(wzoltak): Not handled Failure!
     page_reader_->Finalize();
   }
 
@@ -95,8 +96,12 @@ class PageReaderCursor : public BasicCursor {
     next_page_ = page_and_offset_result.get().first;
     eos_ = false;
 
-    PROPAGATE_ON_FAILURE(Next(page_and_offset_result.get().second));
-
+    rowcount_t rows_left = page_and_offset_result.get().second;
+    do {
+      ResultView skipped_data = Next(rows_left);
+      PROPAGATE_ON_FAILURE(skipped_data);
+      rows_left -= skipped_data.view().row_count();
+    } while (rows_left > 0);
     return Success();
   }
 
