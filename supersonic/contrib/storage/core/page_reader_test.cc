@@ -43,7 +43,6 @@ class MockRandomPageReader : public RandomPageReader {
  public:
   MOCK_METHOD2(GetPage, FailureOr<const Page*>(uint32_t, uint64_t));
   MOCK_METHOD1(TotalPages, FailureOr<uint64_t>(uint32_t));
-  MOCK_METHOD0(Finalize, FailureOrVoid());
 
   MockRandomPageReader* ExpectingGetPage(int number,
                                          const Page* returned_page) {
@@ -56,11 +55,6 @@ class MockRandomPageReader : public RandomPageReader {
   MockRandomPageReader* WithTotalPages(uint64_t returned_total) {
     EXPECT_CALL(*this, TotalPages(0))
         .WillRepeatedly(::testing::Return(Success(returned_total)));
-    return this;
-  }
-
-  MockRandomPageReader* ExpectingFinalize() {
-    EXPECT_CALL(*this, Finalize()).WillOnce(::testing::Return(Success()));
     return this;
   }
 
@@ -92,11 +86,11 @@ class PageReaderTest : public ::testing::Test {
     mock_column_reader2.reset(new MockColumnReader(1));
   }
 
-  Page* CreateFilledPage(int streams) {
+  std::unique_ptr<Page> CreateFilledPage(int streams) {
     PageBuilder page_builder(streams, HeapBufferAllocator::Get());
     FailureOrOwned<Page> page_result = page_builder.CreatePage();
     page_result.mark_checked();
-    return page_result.release();
+    return std::unique_ptr<Page>(page_result.release());
   }
 
   std::unique_ptr<Cursor> CreateCursorUnderTest() {
@@ -130,10 +124,10 @@ TEST_F(PageReaderTest, NormalFlow) {
       .AddRow().Double(1.2)
       .AddRow().Double(1.5).CheckSuccess();
 
+  std::unique_ptr<Page> filled_page = CreateFilledPage(3);
   mock_page_reader
       ->WithTotalPages(1)
-      ->ExpectingGetPage(0, CreateFilledPage(3))
-      ->ExpectingFinalize();
+      ->ExpectingGetPage(0, filled_page.get());
   mock_column_reader1->ExpectingReadColumn(&table1.view());
   mock_column_reader2->ExpectingReadColumn(&table2.view());
 
@@ -153,7 +147,7 @@ TEST_F(PageReaderTest, NormalFlow) {
 }
 
 TEST_F(PageReaderTest, EosFinalizesStream) {
-  mock_page_reader->WithTotalPages(0)->ExpectingFinalize();
+  mock_page_reader->WithTotalPages(0);
   std::unique_ptr<Cursor> page_reader_result = CreateCursorUnderTest();
   ASSERT_TRUE(page_reader_result->Next(50).is_eos());
 }
@@ -168,8 +162,8 @@ TEST_F(PageReaderTest, InconsistentInputThrows) {
       .AddRow().Double(1.2)
       .AddRow().Double(1.5).CheckSuccess();
 
-  mock_page_reader->WithTotalPages(1)->ExpectingGetPage(0, CreateFilledPage(3))
-      ->ExpectingFinalize();
+  std::unique_ptr<Page> filled_page = CreateFilledPage(3);
+  mock_page_reader->WithTotalPages(1)->ExpectingGetPage(0, filled_page.get());
   mock_column_reader1->ExpectingReadColumn(&table1.view());
   mock_column_reader2->ExpectingReadColumn(&table2.view());
 

@@ -47,17 +47,18 @@ typedef std::pair<uint32_t, const TupleSchema> Family;
 // TODO(wzoltak): Move somewhere else. It is also required during reading.
 const uint32_t kMetadataPageFamily = 0;
 const uint32_t kFirstDataPageFamily = 1;
+const uint32_t kMaxDataBytesInFile = 10 * 1024 * 1024; // 10MB
 
 // Represents a Sink which can write data into persistent storage.
 // Splits data into single-attribute views and writes them into separate
 // PageSink objects.
-class StorageSink : public Sink {
+class SingleFileStorageSink : public Sink {
  public:
   typedef vector<std::unique_ptr<Sink>> PageSinkVector;
   typedef vector<std::unique_ptr<const SingleSourceProjector>>
       SingleSourceProjectorVector;
 
-  StorageSink(std::unique_ptr<PageSinkVector> page_sinks,
+  SingleFileStorageSink(std::unique_ptr<PageSinkVector> page_sinks,
               std::unique_ptr<SingleSourceProjectorVector> projectors,
               std::shared_ptr<PageStreamWriter> page_stream_writer,
               std::shared_ptr<MetadataWriter> metadata_writer)
@@ -67,7 +68,7 @@ class StorageSink : public Sink {
         metadata_writer_(metadata_writer),
         finalized_(false) {}
 
-  virtual ~StorageSink() {
+  virtual ~SingleFileStorageSink() {
     if (!finalized_) {
       LOG(DFATAL) << "Destroying not finalized StorageSink.";
       Finalize();
@@ -120,7 +121,7 @@ class StorageSink : public Sink {
   std::shared_ptr<PageStreamWriter> page_stream_writer_;
   std::shared_ptr<MetadataWriter> metadata_writer_;
   bool finalized_;
-  DISALLOW_COPY_AND_ASSIGN(StorageSink);
+  DISALLOW_COPY_AND_ASSIGN(SingleFileStorageSink);
 };
 
 
@@ -180,7 +181,109 @@ FailureOrOwned<std::vector<std::unique_ptr<Sink>>>
   return Success(page_sinks.release());
 }
 
+
+
+class StorageSink : public Sink {
+ public:
+  StorageSink(const TupleSchema& schema,
+              std::unique_ptr<WritableStorage> storage,
+              BufferAllocator* allocator)
+      : schema_(schema),
+        storage_(std::move(storage)),
+        allocator_(allocator),
+        finalized_(false) {}
+
+  virtual ~StorageSink() {}
+
+  FailureOr<rowcount_t> Write(const View& data) {
+    PROPAGATE_ON_FAILURE(MaybeChangeSink());
+    return storage_sink_->Write(data);
+  }
+
+  FailureOrVoid Finalize() {
+    PROPAGATE_ON_FAILURE(storage_sink_->Finalize());
+    finalized_ = true;
+    return Success();
+  }
+
+ private:
+  FailureOrVoid MaybeChangeSink() {
+    if (finalized_ || (storage_sink_.get() != nullptr &&
+        page_stream_->WrittenBytes() < kMaxDataBytesInFile)) {
+      return Success();
+    }
+
+    std::unique_ptr<vector<std::unique_ptr<const SingleSourceProjector>>>
+          projectors(new vector<std::unique_ptr<const SingleSourceProjector>>());
+
+    // Create page stream
+    FailureOrOwned<PageStreamWriter> page_stream_result =
+        storage_->NextPageStreamWriter();
+    PROPAGATE_ON_FAILURE(page_stream_result);
+    page_stream_.reset(page_stream_result.release());
+
+    // Partition schema
+    // TODO(wzoltak): magic constant
+    FailureOrOwned<SchemaPartitioner> partitioner_result =
+        CreateFixedSizeSchemaParitioner(2);
+    PROPAGATE_ON_FAILURE(partitioner_result);
+    std::unique_ptr<SchemaPartitioner> partitioner(partitioner_result.release());
+
+    FailureOrOwned<std::vector<TupleSchema>> partitions =
+        partitioner->Partition(schema_);
+    PROPAGATE_ON_FAILURE(partitions);
+    std::unique_ptr<std::vector<Family>> families
+        = EnumeratePartitions(*partitions, kFirstDataPageFamily);
+
+    // Create MetadataWriter
+    FailureOrOwned<MetadataWriter> metadata_writer_result =
+        CreateMetadataWriter(*families, allocator_);
+    PROPAGATE_ON_FAILURE(metadata_writer_result);
+    std::shared_ptr<MetadataWriter>
+        metadata_writer(metadata_writer_result.release());
+
+    // Create PageSinks
+    FailureOrOwned<vector<std::unique_ptr<Sink>>> page_sinks_result =
+        CreatePageSinks(*families,
+                        schema_,
+                        page_stream_,
+                        metadata_writer,
+                        allocator_);
+    PROPAGATE_ON_FAILURE(page_sinks_result);
+    std::unique_ptr<std::vector<std::unique_ptr<Sink>>>
+        page_sinks(page_sinks_result.release());
+
+    if (storage_sink_.get() != nullptr) {
+      PROPAGATE_ON_FAILURE(storage_sink_->Finalize());
+    }
+
+    storage_sink_.reset(new SingleFileStorageSink(std::move(page_sinks),
+                                                  std::move(projectors),
+                                                  page_stream_,
+                                                  metadata_writer));
+    return Success();
+  }
+
+  const TupleSchema schema_;
+  std::unique_ptr<SingleFileStorageSink> storage_sink_;
+  std::shared_ptr<PageStreamWriter> page_stream_;
+  std::unique_ptr<WritableStorage> storage_;
+  BufferAllocator* allocator_;
+  bool finalized_;
+};
+
+
 }  // namespace
+
+
+FailureOrOwned<Sink> CreateMultiFilesStorageSink(
+    const TupleSchema& schema,
+    std::unique_ptr<WritableStorage> storage,
+    BufferAllocator* allocator) {
+  return Success(new StorageSink(schema,
+                                 std::move(storage),
+                                 allocator));
+}
 
 FailureOrOwned<Sink> CreateFileStorageSink(
     const TupleSchema& schema,
@@ -226,7 +329,7 @@ FailureOrOwned<Sink> CreateFileStorageSink(
   std::unique_ptr<std::vector<std::unique_ptr<Sink>>>
       page_sinks(page_sinks_result.release());
 
-  return Success(new StorageSink(std::move(page_sinks),
+  return Success(new SingleFileStorageSink(std::move(page_sinks),
                                  std::move(projectors),
                                  page_stream,
                                  metadata_writer));
@@ -240,7 +343,7 @@ FailureOrOwned<Sink> CreateStorageSink(
   std::unique_ptr<std::vector<
       std::unique_ptr<const SingleSourceProjector>>> projectors(
           new std::vector<std::unique_ptr<const SingleSourceProjector>>());
-  return Success(new StorageSink(std::move(page_sinks),
+  return Success(new SingleFileStorageSink(std::move(page_sinks),
                                  std::move(projectors),
                                  page_stream,
                                  metadata_writer));

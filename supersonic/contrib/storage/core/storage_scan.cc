@@ -48,7 +48,7 @@ class StorageScanCursor : public BasicCursor {
                     std::unique_ptr<Cursor> data_to_join,
                     std::unique_ptr<const SingleSourceProjector> projector,
                     std::unique_ptr<const BoundSingleSourceProjector>
-                        bound_projector)
+                    bound_projector)
       : BasicCursor(schema),
         data_to_join_(std::move(data_to_join)),
         projector_(std::move(projector)),
@@ -93,7 +93,7 @@ class DataStorageImplementation : public DataStorage {
 
   ~DataStorageImplementation() {
     // TODO(wzoltak): Not handled Failure!
-    page_reader_->Finalize();
+//    page_reader_->Finalize();
   }
 
   const StorageMetadata& Metadata() const {
@@ -227,6 +227,96 @@ class DataStorageImplementation : public DataStorage {
 };
 
 
+class MultiFileStorageScan : public BasicCursor {
+ public:
+  MultiFileStorageScan(const TupleSchema& schema,
+                       std::unique_ptr<DataStorage> data_storage,
+                       std::unique_ptr<Cursor> initial_cursor,
+                       std::unique_ptr<ReadableStorage> readable_storage,
+                       BufferAllocator* allocator)
+      : BasicCursor(schema),
+        schema_(schema),
+        data_storage_(std::move(data_storage)),
+        cursor_(std::move(initial_cursor)),
+        readable_storage_(std::move(readable_storage)),
+        allocator_(allocator) {}
+
+
+  ResultView Next(rowcount_t max_row_count) {
+    ResultView data = cursor_->Next(max_row_count);
+    PROPAGATE_ON_FAILURE(data);
+
+    if (data.is_eos()) {
+      printf("EOS!\n");
+      if (!readable_storage_->HasNext()) {
+        return data;
+      }
+      PROPAGATE_ON_FAILURE(NextDataStorageAndCursor());
+      return Next(max_row_count);
+    } else {
+      return data;
+    }
+  }
+
+  bool IsWaitingOnBarrierSupported() const {
+    return cursor_->IsWaitingOnBarrierSupported();
+  }
+
+  CursorId GetCursorId() const { return STORAGE_SCAN; }
+
+  FailureOrVoid InitialShift(rowcount_t row) {
+    size_t data_storage_size = CurrentDataStorageSize();
+    while (row >= data_storage_size) {
+      PROPAGATE_ON_FAILURE(NextDataStorageAndCursor());
+      row -= data_storage_size;
+    }
+    FailureOrOwned<Cursor> cursor_result =
+        data_storage_->CreateScanCursor(row, schema_);
+    PROPAGATE_ON_FAILURE(cursor_result);
+    cursor_.reset(cursor_result.release());
+    return Success();
+  }
+
+ private:
+  size_t CurrentDataStorageSize() {
+    const StorageMetadata& metadata = data_storage_->Metadata();
+    size_t size = 0;
+    CHECK_GT(metadata.page_families_size(), 0);
+    const PageFamily& family = metadata.page_families(0);
+    for (const PageMetadata& page_metadata : family.pages()) {
+      size += page_metadata.row_count();
+    }
+    return size;
+  }
+
+  FailureOrVoid NextDataStorageAndCursor() {
+    printf("[MultiFileStorageScan] Getting next cursor\n");
+    FailureOrOwned<RandomPageReader> random_page_reader_result =
+        readable_storage_->NextRandomPageReader();
+    PROPAGATE_ON_FAILURE(random_page_reader_result);
+    std::unique_ptr<RandomPageReader>
+        random_page_reader(random_page_reader_result.release());
+
+
+    FailureOrOwned<DataStorage> data_storage =
+        CreateDataStorage(std::move(random_page_reader),
+                          allocator_);
+    PROPAGATE_ON_FAILURE(data_storage);
+    FailureOrOwned<Cursor> cursor_result =
+        data_storage->CreateScanCursor(0, schema_);
+    PROPAGATE_ON_FAILURE(cursor_result);
+    cursor_.reset(cursor_result.release());
+    return Success();
+  }
+
+  TupleSchema schema_;
+  std::unique_ptr<DataStorage> data_storage_;
+  std::unique_ptr<Cursor> cursor_;
+  std::unique_ptr<ReadableStorage> readable_storage_;
+  BufferAllocator* allocator_;
+};
+
+
 FailureOrOwned<TupleSchema>
     ExtractSchema(const StorageMetadata& metadata) {
   std::unique_ptr<TupleSchema> schema(new TupleSchema());
@@ -246,17 +336,8 @@ FailureOrOwned<TupleSchema>
 }  // namespace
 
 FailureOrOwned<DataStorage>
-    CreateDataStorage(std::unique_ptr<ReadableStorage> readable_storage,
+    CreateDataStorage(std::unique_ptr<RandomPageReader> random_page_reader,
                       BufferAllocator* allocator) {
-  // Create PageStreamReader
-  // Ownership will be shared between PageReaders.
-  FailureOrOwned<RandomPageReader> random_page_reader_result =
-      readable_storage->NextRandomPageReader();
-  PROPAGATE_ON_FAILURE(random_page_reader_result);
-  std::shared_ptr<RandomPageReader>
-      random_page_reader(random_page_reader_result.release());
-  Finally finally(Finalize(random_page_reader.get()));
-
   // Read metadata
   FailureOr<const Page*> page_result =
       random_page_reader->GetPage(kMetadataPageFamily, 0);
@@ -271,8 +352,7 @@ FailureOrOwned<DataStorage>
   PROPAGATE_ON_FAILURE(schema_result);
   std::unique_ptr<TupleSchema> schema(schema_result.release());
 
-  finally.Abort();
-  return Success(new DataStorageImplementation(random_page_reader,
+  return Success(new DataStorageImplementation(std::move(random_page_reader),
                                                std::move(metadata),
                                                std::move(schema),
                                                allocator));
@@ -283,8 +363,16 @@ FailureOrOwned<Cursor>
     FileStorageScan(std::unique_ptr<ReadableStorage> storage,
                     rowcount_t starting_from_row,
                     BufferAllocator* allocator) {
+  // Create PageStreamReader
+  // Ownership will be shared between PageReaders.
+  FailureOrOwned<RandomPageReader> random_page_reader_result =
+      storage->NextRandomPageReader();
+  PROPAGATE_ON_FAILURE(random_page_reader_result);
+  std::unique_ptr<RandomPageReader>
+      random_page_reader(random_page_reader_result.release());
+
   FailureOrOwned<DataStorage> data_storage =
-      CreateDataStorage(std::move(storage), allocator);
+      CreateDataStorage(std::move(random_page_reader), allocator);
   PROPAGATE_ON_FAILURE(data_storage);
   return data_storage->CreateScanCursor(starting_from_row);
 }
@@ -295,12 +383,53 @@ FailureOrOwned<Cursor>
                     rowcount_t starting_from_row,
                     const TupleSchema& schema,
                     BufferAllocator* allocator) {
+  // Create PageStreamReader
+  // Ownership will be shared between PageReaders.
+  FailureOrOwned<RandomPageReader> random_page_reader_result =
+      storage->NextRandomPageReader();
+  PROPAGATE_ON_FAILURE(random_page_reader_result);
+  std::unique_ptr<RandomPageReader>
+      random_page_reader(random_page_reader_result.release());
+
   FailureOrOwned<DataStorage> data_storage =
-      CreateDataStorage(std::move(storage), allocator);
+      CreateDataStorage(std::move(random_page_reader), allocator);
   PROPAGATE_ON_FAILURE(data_storage);
   return data_storage->CreateScanCursor(starting_from_row,
                                         schema);
 }
 
+
+FailureOrOwned<Cursor> MultiFilesScan(
+    std::unique_ptr<ReadableStorage> storage,
+    rowcount_t starting_from_row,
+    const TupleSchema& schema,
+    BufferAllocator* allocator) {
+  // Create PageStreamReader
+  // Ownership will be shared between PageReaders.
+  FailureOrOwned<RandomPageReader> random_page_reader_result =
+      storage->NextRandomPageReader();
+  PROPAGATE_ON_FAILURE(random_page_reader_result);
+  std::unique_ptr<RandomPageReader>
+      random_page_reader(random_page_reader_result.release());
+
+  FailureOrOwned<DataStorage> data_storage_result =
+      CreateDataStorage(std::move(random_page_reader), allocator);
+  PROPAGATE_ON_FAILURE(data_storage_result);
+  std::unique_ptr<DataStorage> data_storage(data_storage_result.release());
+
+  FailureOrOwned<Cursor> initial_cursor_result =
+      data_storage->CreateScanCursor(0 /* starting_from_row */, schema);
+  PROPAGATE_ON_FAILURE(initial_cursor_result);
+  std::unique_ptr<Cursor> initial_cursor(initial_cursor_result.release());
+
+  std::unique_ptr<MultiFileStorageScan>
+      storage_scan(new MultiFileStorageScan(schema,
+                                            std::move(data_storage),
+                                            std::move(initial_cursor),
+                                            std::move(storage),
+                                            allocator));
+  PROPAGATE_ON_FAILURE(storage_scan->InitialShift(starting_from_row));
+  return Success(storage_scan.release());
+}
 
 }  // namespace supersonic

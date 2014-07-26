@@ -66,6 +66,7 @@ class MockPageStreamWriter : public PageStreamWriter {
  public:
   MOCK_METHOD2(AppendPage, FailureOr<uint64_t>(uint32_t, const Page&));
   MOCK_METHOD0(Finalize, FailureOrVoid());
+  MOCK_METHOD0(WrittenBytes, size_t());
 
   MockPageStreamWriter* ExpectAppendPage(const Page& page) {
     EXPECT_CALL(*this, AppendPage(0, ::testing::Ref(page)))

@@ -27,6 +27,11 @@
 #include "supersonic/contrib/storage/util/path_util.h"
 #include "supersonic/utils/file.h"
 
+
+#include <iostream>
+
+#include "supersonic/cursor/infrastructure/view_printer.h"
+
 namespace supersonic {
 namespace {
 
@@ -92,9 +97,9 @@ TEST_F(IntegrationTest, FullFlow) {
       writable_storage(writable_storage_result.release());
 
   FailureOrOwned<Sink> storage_sink_result =
-      CreateFileStorageSink(schema_,
-                            std::move(writable_storage),
-                            allocator);
+      CreateMultiFilesStorageSink(schema_,
+                                  std::move(writable_storage),
+                                  allocator);
   ASSERT_TRUE(storage_sink_result.is_success());
   std::unique_ptr<Sink> storage_sink(storage_sink_result.release());
 
@@ -103,7 +108,7 @@ TEST_F(IntegrationTest, FullFlow) {
   Generator generator(schema_, seeds, pieces_);
   size_t written = 0;
   size_t step = 1000;
-  for (int i = 0; i < 100; i++) {
+  for (int i = 0; i < 1000; i++) {
     const View& view = generator.Generate(step);
     ASSERT_TRUE(storage_sink->Write(view).is_success());
     written += step;
@@ -133,15 +138,14 @@ TEST_F(IntegrationTest, FullFlow) {
   columns.push_back(4);
 
 
-  FailureOrOwned<DataStorage> data_storage_result =
-      CreateDataStorage(std::move(readable_storage),
-                        allocator);
-  ASSERT_TRUE(data_storage_result.is_success());
-  std::unique_ptr<DataStorage> data_storage(data_storage_result.release());
-
-  const rowcount_t starting_from_row = 0;
+  const rowcount_t starting_from_row = 112300;
   FailureOrOwned<Cursor> storage_scan_result =
-      data_storage->CreateScanCursor(starting_from_row, zzz);
+      MultiFilesScan(std::move(readable_storage),
+                     starting_from_row,
+                     zzz,
+                     allocator);
+  printf("storage created!\n");
+  fflush(stdout);
   if (storage_scan_result.is_failure()) {
     printf("%s\n", storage_scan_result.exception().ToString().c_str());
   }

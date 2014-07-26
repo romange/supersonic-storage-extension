@@ -130,7 +130,6 @@ TEST_F(FileStorageTest, WriteThenRead) {
       ASSERT_TRUE(read_page.is_success());
       AssertEqualPages(*read_page.get(), *page);
     }
-    page_reader->Finalize();
   }
   ASSERT_FALSE(readable_storage->HasNext());
 }

@@ -51,9 +51,11 @@ class PageBuilder::Implementation {
 
   // Writes PageHeader representing current state into destination.
   void WritePageHeader(uint8_t* dest) {
-    google::protobuf::io::CodedOutputStream output_stream(
-        new google::protobuf::io::ArrayOutputStream(
-            dest, kSerializedPageHeaderSize));
+    std::unique_ptr<google::protobuf::io::ArrayOutputStream>
+        array_stream(new google::protobuf::io::ArrayOutputStream(
+            dest,
+            kSerializedPageHeaderSize));
+    google::protobuf::io::CodedOutputStream output_stream(array_stream.get());
     output_stream.WriteLittleEndian64(pub_.PageSize());
     output_stream.WriteLittleEndian32(pub_.ByteBuffersCount());
   }
@@ -70,9 +72,11 @@ class PageBuilder::Implementation {
       length += chunk_length;
     }
 
-    google::protobuf::io::CodedOutputStream output_stream(
-        new google::protobuf::io::ArrayOutputStream(
-            dest, kSerializedByteBufferHeaderSize));
+    std::unique_ptr<google::protobuf::io::ArrayOutputStream>
+        array_stream(new google::protobuf::io::ArrayOutputStream(
+            dest,
+            kSerializedByteBufferHeaderSize));
+    google::protobuf::io::CodedOutputStream output_stream(array_stream.get());
     output_stream.WriteLittleEndian64(length);
 
     return length + kSerializedByteBufferHeaderSize;
@@ -160,10 +164,11 @@ FailureOrOwned<Page> PageBuilder::CreatePage() {
 
   implementation_->WritePageHeader(data);
 
-  google::protobuf::io::CodedOutputStream output_stream(
-      new google::protobuf::io::ArrayOutputStream(
+  std::unique_ptr<google::protobuf::io::ArrayOutputStream>
+      array_stream(new google::protobuf::io::ArrayOutputStream(
           data + kSerializedPageHeaderSize,
           sizeof(Page::offset_t) * ByteBuffersCount()));
+  google::protobuf::io::CodedOutputStream output_stream(array_stream.get());
 
   Page::offset_t byte_buffer_offset = kSerializedPageHeaderSize +
       ByteBuffersCount() * sizeof(Page::offset_t);

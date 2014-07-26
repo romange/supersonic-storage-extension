@@ -152,6 +152,10 @@ class FilePageStreamWriter : public PageStreamWriter {
     return Success();
   }
 
+  virtual size_t WrittenBytes() {
+    return written_bytes_;
+  }
+
  private:
   // TODO(wzoltak): Use protobuf instead of manual de(serialization)?
   FailureOrVoid WriteIndex() {
@@ -165,7 +169,7 @@ class FilePageStreamWriter : public PageStreamWriter {
         + sizeof(uint64_t);
 
     // TODO(wzoltak): use allocator?
-    std::unique_ptr<uint8_t> buffer(new uint8_t[required_size]);
+    std::unique_ptr<uint8_t[]> buffer(new uint8_t[required_size]);
 
     google::protobuf::io::ArrayOutputStream
         array_stream(buffer.get(), required_size);
@@ -247,12 +251,11 @@ class FileRandomPageReader : public RandomPageReader {
       : file_(file),
         buffer_(std::move(buffer)),
         allocator_(allocator),
-        finalized_(false) {}
+        file_size_(0) {}
 
   virtual ~FileRandomPageReader() {
-    if (!finalized_) {
-      LOG(DFATAL)<< "Destroying not finalized FileRandomPageReader.";
-      Finalize();
+    if (!file_->Close()) {
+      LOG(ERROR) << "Can not close the underlying file.";
     }
   }
 
@@ -270,11 +273,6 @@ class FileRandomPageReader : public RandomPageReader {
   }
 
   FailureOr<const Page*> GetPage(uint32_t family, uint64_t number) {
-    if (finalized_) {
-      THROW(new Exception(
-          ERROR_INVALID_STATE,
-          "Reading from finalized FileRandomPageReader."));
-    }
     uint64_t page_offset = page_index_[family][number];
     uint64_t page_size;
     PROPAGATE_ON_FAILURE(
@@ -298,16 +296,6 @@ class FileRandomPageReader : public RandomPageReader {
                           StringPrintf("Unknown page family '%d'.", family)));
     }
     return Success(it->second.size());
-  }
-
-  virtual FailureOrVoid Finalize() {
-    if (!finalized_ && !file_->Close()) {
-      THROW(new Exception(ERROR_GENERAL_IO_ERROR,
-                          "Can not close the underlying file."));
-    }
-
-    finalized_ = true;
-    return Success();
   }
 
  private:
@@ -348,7 +336,7 @@ class FileRandomPageReader : public RandomPageReader {
 
   FailureOrVoid ReadIndex() {
     uint64_t tail_size = 2 * sizeof(uint64_t);
-    std::unique_ptr<uint8_t> file_tail(new uint8_t[tail_size]);
+    std::unique_ptr<uint8_t[]> file_tail(new uint8_t[tail_size]);
     PROPAGATE_ON_FAILURE(
         ReadExactly(file_size_ - tail_size, file_tail.get(), tail_size));
 
@@ -406,7 +394,6 @@ class FileRandomPageReader : public RandomPageReader {
   BufferAllocator* allocator_;
   std::unique_ptr<Page> read_page_;
   int64_t file_size_;
-  bool finalized_;
   DISALLOW_COPY_AND_ASSIGN(FileRandomPageReader);
 };
 
@@ -453,10 +440,7 @@ class ReadableFileStorage : public ReadableStorage {
                                              std::move(buffer),
                                              allocator_));
     FailureOrVoid init_result = page_reader->Init();
-    if (init_result.is_failure()) {
-      page_reader->Finalize();
-      PROPAGATE_ON_FAILURE(init_result);
-    }
+    PROPAGATE_ON_FAILURE(init_result);
     return Success(page_reader.release());
   }
 

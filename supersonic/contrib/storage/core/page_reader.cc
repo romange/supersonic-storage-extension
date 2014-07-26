@@ -54,7 +54,8 @@ class PageReaderCursor : public BasicCursor {
     // Note that page reader is shared and Finalize may be called multiple
     // times, but due to its idempotent nature everything is OK.
     // TODO(wzoltak): Not handled Failure!
-    page_reader_->Finalize();
+    // TODO(wzoltak): should be handled by RAII.
+//    page_reader_->Finalize();
   }
 
   ResultView Next(rowcount_t max_row_count) {

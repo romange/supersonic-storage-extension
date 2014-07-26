@@ -20,14 +20,14 @@ else
 RE2_LIBS =
 endif
 
-TEST_FLAGS = -I$(top_srcdir)/gmock/fused-src $(GMOCK_FLAGS)
+TEST_FLAGS = -I$(top_srcdir)/gmock/fused-src $(GMOCK_FLAGS) -g
 
 COMPILER_FLAGS = $(PTHREAD_CFLAGS) \
     $(AM_CXXFLAGS) \
     $(GFLAGS_CFLAGS) \
     $(GLOG_CFLAGS) \
     $(PROTO_CFLAGS) \
-    $(BOOST_CPPFLAGS)
+    $(BOOST_CPPFLAGS) -g
 
 SUPERSONIC_LIB_LD_FLAGS =
 SUPERSONIC_LIB_LD_ADD = \

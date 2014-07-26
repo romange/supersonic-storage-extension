@@ -32,7 +32,7 @@ namespace supersonic {
 
 bool PathUtil::MkDir(const std::string& path, mode_t mode, bool with_parents) {
   int c_path_buffer_length = strlen(path.c_str()) + 1;
-  std::unique_ptr<char> c_path(new char[c_path_buffer_length]);
+  std::unique_ptr<char[]> c_path(new char[c_path_buffer_length]);
   snprintf(c_path.get(), c_path_buffer_length, "%s", path.c_str());
 
   char* parent_name = dirname(c_path.get());

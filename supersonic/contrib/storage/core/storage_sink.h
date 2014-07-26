@@ -28,6 +28,11 @@
 
 namespace supersonic {
 
+FailureOrOwned<Sink> CreateMultiFilesStorageSink(
+    const TupleSchema& schema,
+    std::unique_ptr<WritableStorage> storage,
+    BufferAllocator* allocator);
+
 FailureOrOwned<Sink> CreateFileStorageSink(
     const TupleSchema& schema,
     std::unique_ptr<WritableStorage> storage,

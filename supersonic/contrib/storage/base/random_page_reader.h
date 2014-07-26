@@ -33,10 +33,6 @@ class RandomPageReader {
 
   // Returns the number of available pages.
   virtual FailureOr<uint64_t> TotalPages(uint32_t family) = 0;
-
-  // Finalizes the reader. Must be called before instance destruction.
-  // Method is idempotent.
-  virtual FailureOrVoid Finalize() = 0;
 };
 
 }  // namespace supersonic

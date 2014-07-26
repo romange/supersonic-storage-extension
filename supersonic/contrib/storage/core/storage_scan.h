@@ -38,7 +38,7 @@ class DataStorage {
 };
 
 FailureOrOwned<DataStorage>
-    CreateDataStorage(std::unique_ptr<ReadableStorage> readable_storage,
+    CreateDataStorage(std::unique_ptr<RandomPageReader> page_reader,
                       BufferAllocator* allocator);
 
 
@@ -55,6 +55,13 @@ FailureOrOwned<Cursor>
                     rowcount_t startring_from_row,
                     const TupleSchema& schema,
                     BufferAllocator* allocator);
+
+
+FailureOrOwned<Cursor> MultiFilesScan(
+    std::unique_ptr<ReadableStorage> storage,
+    rowcount_t starting_from_row,
+    const TupleSchema& schema,
+    BufferAllocator* allocator);
 
 }  // namespace supersonic
 

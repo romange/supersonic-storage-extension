@@ -34,6 +34,9 @@ class PageStreamWriter {
   // be used for writing anymore. Finalize must be always called before the
   // object is destroyed.
   virtual FailureOrVoid Finalize() = 0;
+
+  // Returns how much bytes were written so far.
+  virtual size_t WrittenBytes() = 0;
 };
 
 }  // namespace supersonic
