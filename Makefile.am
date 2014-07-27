@@ -309,7 +309,6 @@ test_contrib_storage_core_CPPFLAGS = $(SUPERSONIC_TESTS_FLAGS)
 test_contrib_storage_core_LDFLAGS  = $(SUPERSONIC_TESTS_LD_FLAGS)
 test_contrib_storage_core_LDADD    = $(SUPERSONIC_TESTS_LD_ADD)
 test_contrib_storage_core_SOURCES  = \
-    supersonic/contrib/storage/base/page.cc \
     supersonic/contrib/storage/core/data_type_serializer_test.cc \
     supersonic/contrib/storage/base/column_writer_test.cc \
     supersonic/contrib/storage/core/file_storage_test.cc \
@@ -317,27 +316,12 @@ test_contrib_storage_core_SOURCES  = \
     supersonic/contrib/storage/core/page_sink_test.cc \
     supersonic/contrib/storage/core/storage_sink_test.cc \
     supersonic/contrib/storage/base/column_reader_test.cc \
-    supersonic/contrib/storage/base/column_reader.cc \
     supersonic/contrib/storage/util/schema_converter_test.cc \
     supersonic/contrib/storage/base/schema_partitioner_test.cc \
     supersonic/contrib/storage/base/storage_metadata_test.cc \
     supersonic/contrib/storage/core/page_reader_test.cc \
-    supersonic/contrib/storage/core/integration_test.cc \
-    supersonic/contrib/storage/core/data_type_deserializer.cc \
-    supersonic/contrib/storage/base/storage_metadata.cc \
-    supersonic/contrib/storage/core/file_series.cc \
-    supersonic/contrib/storage/core/page_reader.cc \
-    supersonic/contrib/storage/core/storage_scan.cc \
-    supersonic/contrib/storage/core/page_builder.cc \
-    supersonic/contrib/storage/core/storage_sink.cc \
-    supersonic/contrib/storage/core/page_sink.cc \
-    supersonic/contrib/storage/util/path_util.cc \
-    supersonic/contrib/storage/base/column_writer.cc \
-    supersonic/contrib/storage/base/schema_partitioner.cc \
-    supersonic/contrib/storage/core/data_type_serializer.cc \
-    supersonic/contrib/storage/util/schema_converter.cc
+    supersonic/contrib/storage/core/integration_test.cc
 TESTS += test_contrib_storage_core
-
 
 # Benchmark utilities
 lib_LTLIBRARIES += libsupersonic_benchmark.la
@@ -708,6 +692,23 @@ supersonic_S += supersonic/expression/base/expression.cc \
     supersonic/expression/templated/cast_bound_expression.cc \
     supersonic/expression/templated/cast_expression.cc \
     supersonic/expression/vector/vector_logic.cc
+
+# contrib/storage
+supersonic_S += supersonic/contrib/storage/base/page.cc \
+    supersonic/contrib/storage/base/column_reader.cc \
+    supersonic/contrib/storage/base/column_writer.cc \
+    supersonic/contrib/storage/base/schema_partitioner.cc \
+    supersonic/contrib/storage/base/storage_metadata.cc \
+    supersonic/contrib/storage/core/data_type_deserializer.cc \
+    supersonic/contrib/storage/core/data_type_serializer.cc \
+    supersonic/contrib/storage/core/file_series.cc \
+    supersonic/contrib/storage/core/storage_scan.cc \
+    supersonic/contrib/storage/core/page_builder.cc \
+    supersonic/contrib/storage/core/page_reader.cc \
+    supersonic/contrib/storage/core/page_sink.cc \
+    supersonic/contrib/storage/core/storage_sink.cc \
+    supersonic/contrib/storage/util/path_util.cc \
+    supersonic/contrib/storage/util/schema_converter.cc
 
 # Source list
 libsupersonic_la_SOURCES = $(nobase_supersonic_include_HEADERS) \

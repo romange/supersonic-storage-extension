@@ -21,7 +21,7 @@
 #include "supersonic/base/exception/result.h"
 #include "supersonic/base/memory/memory.h"
 #include "supersonic/cursor/base/operation.h"
-#include "supersonic/contrib/storage/base/storage.h"
+#include "supersonic/contrib/storage/base/raw_storage.h"
 
 namespace supersonic {
 
@@ -45,20 +45,20 @@ FailureOrOwned<DataStorage>
 // Creates a Cursor which reads data from given storage. Takes ownership over
 // storage.
 FailureOrOwned<Cursor>
-    FileStorageScan(std::unique_ptr<ReadableStorage> storage,
+    FileStorageScan(std::unique_ptr<ReadableRawStorage> storage,
                     rowcount_t startring_from_row,
                     BufferAllocator* allocator);
 
 
 FailureOrOwned<Cursor>
-    FileStorageScan(std::unique_ptr<ReadableStorage> storage,
+    FileStorageScan(std::unique_ptr<ReadableRawStorage> storage,
                     rowcount_t startring_from_row,
                     const TupleSchema& schema,
                     BufferAllocator* allocator);
 
 
 FailureOrOwned<Cursor> MultiFilesScan(
-    std::unique_ptr<ReadableStorage> storage,
+    std::unique_ptr<ReadableRawStorage> storage,
     rowcount_t starting_from_row,
     const TupleSchema& schema,
     BufferAllocator* allocator);

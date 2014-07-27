@@ -40,7 +40,7 @@
 #include "supersonic/contrib/storage/base/page.h"
 #include "supersonic/contrib/storage/base/page_stream_writer.h"
 #include "supersonic/contrib/storage/base/random_page_reader.h"
-#include "supersonic/contrib/storage/base/storage.h"
+#include "supersonic/contrib/storage/base/raw_storage.h"
 #include "supersonic/contrib/storage/core/page_builder.h"
 #include "supersonic/contrib/storage/core/file_series.h"
 #include "supersonic/utils/file.h"
@@ -206,16 +206,26 @@ class FilePageStreamWriter : public PageStreamWriter {
 // WritableStorage which stores data in files, operating via the
 // supersonic::File interface.
 template<class FileT>
-class WritableFileStorage : public WritableStorage {
+class WritableFileStorageImplementation : public WritableRawStorage {
  public:
-  WritableFileStorage(std::unique_ptr<FileSeries> file_series,
-                      BufferAllocator* allocator)
+  WritableFileStorageImplementation(std::unique_ptr<FileSeries> file_series,
+                                    BufferAllocator* allocator)
       : file_series_(std::move(file_series)) {}
 
-  virtual ~WritableFileStorage() {}
+  virtual ~WritableFileStorageImplementation() {}
 
   FailureOrOwned<PageStreamWriter> NextPageStreamWriter() {
-    return CreatePageStreamWriter(file_series_->NextFileName());
+    printf("------------- %d\n", file_series_.get());
+    printf("------------- %d\n", file_series_->HasNext());
+    fflush(stdout);
+
+    if (!file_series_->HasNext()) {
+      THROW(new Exception(ERROR_INVALID_STATE,
+                          "Unable to obtain next file name in series"));
+    }
+    printf("zzzzzzzzzzzzzz");
+    fflush(stdout);
+    return CreatePageStreamWriter(file_series_->Next());
   }
 
  private:
@@ -241,7 +251,7 @@ class WritableFileStorage : public WritableStorage {
 
   std::unique_ptr<FileSeries> file_series_;
 
-  DISALLOW_COPY_AND_ASSIGN(WritableFileStorage);
+  DISALLOW_COPY_AND_ASSIGN(WritableFileStorageImplementation);
 };
 
 class FileRandomPageReader : public RandomPageReader {
@@ -401,24 +411,24 @@ class FileRandomPageReader : public RandomPageReader {
 // ReadableStorage which reads data from files, operating via the
 // supersonic::File interface.
 template<class FileT>
-class ReadableFileStorage : public ReadableStorage {
+class ReadableFileStorageImplementation : public ReadableRawStorage {
  public:
-  explicit ReadableFileStorage(std::unique_ptr<FileSeries> file_series,
-                               BufferAllocator* allocator)
-      : allocator_(allocator),
-        file_name_generator_(std::move(file_series)),
-        next_name_(file_name_generator_->NextFileName()) {}
+  explicit ReadableFileStorageImplementation(
+      std::unique_ptr<FileSeries> file_series,
+      BufferAllocator* allocator)
+          : allocator_(allocator),
+            file_name_generator_(std::move(file_series)) {}
 
   FailureOrOwned<RandomPageReader> NextRandomPageReader() {
     FailureOrOwned<RandomPageReader> result =
-        CreateRandomPageReader(next_name_);
+        CreateRandomPageReader(file_name_generator_->Next());
     PROPAGATE_ON_FAILURE(result);
-    next_name_ = file_name_generator_->NextFileName();
     return result;
   }
 
   bool HasNext() {
-    return FileT::Exists(FileT::JoinPath(path_, next_name_));
+    return file_name_generator_->HasNext() &&
+        FileT::Exists(FileT::JoinPath(path_, file_name_generator_->PeepNext()));
   }
 
  private:
@@ -451,21 +461,21 @@ class ReadableFileStorage : public ReadableStorage {
 
   BufferAllocator* allocator_;
   std::unique_ptr<FileSeries> file_name_generator_;
-  std::string next_name_;
   const std::string path_;
 
-  DISALLOW_COPY_AND_ASSIGN(ReadableFileStorage);
+  DISALLOW_COPY_AND_ASSIGN(ReadableFileStorageImplementation);
 };
 
 // Creates the ReadableStorage which reads data from files. `FileT` and
 // `PathUtilT` should be supersonic::File and supersonic::PathUtil
 // implementation. Meaning of `path` depends on chosen implementation.
 template<class FileT, class PathUtilT>
-FailureOrOwned<ReadableStorage>
-    CreateReadableFileStorage(std::unique_ptr<FileSeries> file_series,
-                              BufferAllocator* allocator) {
-  return Success(new ReadableFileStorage<FileT>(std::move(file_series),
-                                                allocator));
+FailureOrOwned<ReadableRawStorage>
+    ReadableFileStorage(std::unique_ptr<FileSeries> file_series,
+                        BufferAllocator* allocator) {
+  return Success(
+      new ReadableFileStorageImplementation<FileT>(std::move(file_series),
+                                                   allocator));
 }
 
 // Creates the WritableStorage which stores data in files. `FileT` and
@@ -473,11 +483,13 @@ FailureOrOwned<ReadableStorage>
 // implementation. Meaning of `path` depends on chosen implementation.
 // TODO(wzoltak): fix comment.
 template<class FileT, class PathUtilT>
-FailureOrOwned<WritableStorage>
-    CreateWritableFileStorage(std::unique_ptr<FileSeries> file_series,
-                              BufferAllocator* buffer_allocator) {
-  return Success(new WritableFileStorage<FileT>(std::move(file_series),
-                                                buffer_allocator));
+FailureOrOwned<WritableRawStorage>
+    WritableFileStorage(std::unique_ptr<FileSeries> file_series,
+                        BufferAllocator* buffer_allocator) {
+  printf("%d\n", file_series.get());
+  return Success(
+      new WritableFileStorageImplementation<FileT>(std::move(file_series),
+                                                   buffer_allocator));
 }
 
 }  // namespace supersonic

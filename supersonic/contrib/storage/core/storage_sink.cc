@@ -25,12 +25,11 @@
 #include "supersonic/base/exception/exception.h"
 #include "supersonic/base/memory/memory.h"
 #include "supersonic/base/infrastructure/projector.h"
-#include "supersonic/contrib/storage/base/storage.h"
 #include "supersonic/contrib/storage/base/byte_stream_writer.h"
 #include "supersonic/contrib/storage/base/page_stream_writer.h"
+#include "supersonic/contrib/storage/base/raw_storage.h"
 #include "supersonic/contrib/storage/base/schema_partitioner.h"
 #include "supersonic/contrib/storage/base/storage_metadata.h"
-#include "supersonic/contrib/storage/core/file_storage.h"
 #include "supersonic/contrib/storage/core/page_builder.h"
 #include "supersonic/contrib/storage/core/page_sink.h"
 #include "supersonic/contrib/storage/util/schema_converter.h"
@@ -47,14 +46,15 @@ typedef std::pair<uint32_t, const TupleSchema> Family;
 // TODO(wzoltak): Move somewhere else. It is also required during reading.
 const uint32_t kMetadataPageFamily = 0;
 const uint32_t kFirstDataPageFamily = 1;
-const uint32_t kMaxDataBytesInFile = 10 * 1024 * 1024; // 10MB
+
+const uint32_t kMaxDataBytesInFile = 128 * 1024 * 1024; // 128MB
 
 // Represents a Sink which can write data into persistent storage.
 // Splits data into single-attribute views and writes them into separate
 // PageSink objects.
 class SingleFileStorageSink : public Sink {
  public:
-  typedef vector<std::unique_ptr<Sink>> PageSinkVector;
+  typedef vector<std::unique_ptr<PageSink>> PageSinkVector;
   typedef vector<std::unique_ptr<const SingleSourceProjector>>
       SingleSourceProjectorVector;
 
@@ -82,7 +82,7 @@ class SingleFileStorageSink : public Sink {
     }
 
     const rowcount_t row_count = data.row_count();
-    for (std::unique_ptr<Sink> &page_sink : *page_sinks_) {
+    for (std::unique_ptr<PageSink>& page_sink : *page_sinks_) {
       FailureOr<rowcount_t> result = page_sink->Write(data);
       PROPAGATE_ON_FAILURE(result);
 
@@ -96,7 +96,7 @@ class SingleFileStorageSink : public Sink {
   }
 
   virtual FailureOrVoid Finalize() {
-    for (std::unique_ptr<Sink> &page_sink : *page_sinks_) {
+    for (std::unique_ptr<PageSink>& page_sink : *page_sinks_) {
       FailureOrVoid result = page_sink->Finalize();
       PROPAGATE_ON_FAILURE(result);
     }
@@ -104,6 +104,14 @@ class SingleFileStorageSink : public Sink {
     PROPAGATE_ON_FAILURE(page_stream_writer_->Finalize());
     finalized_ = true;
     return Success();
+  }
+
+  size_t WrittenBytes() {
+    size_t result = page_stream_writer_->WrittenBytes();
+    for (std::unique_ptr<PageSink>& page_sink : *page_sinks_) {
+      result += page_sink->BytesInPage();
+    }
+    return result;
   }
 
  private:
@@ -150,14 +158,14 @@ std::unique_ptr<const SingleSourceProjector>
 }
 
 
-FailureOrOwned<std::vector<std::unique_ptr<Sink>>>
+FailureOrOwned<std::vector<std::unique_ptr<PageSink>>>
     CreatePageSinks(const std::vector<Family>& families,
                     TupleSchema schema,
                     std::shared_ptr<PageStreamWriter> page_stream,
                     std::shared_ptr<MetadataWriter> metadata_writer,
                     BufferAllocator* allocator) {
-  std::unique_ptr<std::vector<std::unique_ptr<Sink>>>
-      page_sinks(new std::vector<std::unique_ptr<Sink>>);
+  std::unique_ptr<std::vector<std::unique_ptr<PageSink>>>
+      page_sinks(new std::vector<std::unique_ptr<PageSink>>);
 
   for (const Family& family : families) {
     std::unique_ptr<const SingleSourceProjector> projector =
@@ -168,7 +176,7 @@ FailureOrOwned<std::vector<std::unique_ptr<Sink>>>
     std::unique_ptr<const BoundSingleSourceProjector>
         bound_projector(bound_projector_result.release());
 
-    FailureOrOwned<Sink> page_sink =
+    FailureOrOwned<PageSink> page_sink =
           CreatePageSink(std::move(bound_projector),
                          page_stream,
                          metadata_writer,
@@ -182,11 +190,15 @@ FailureOrOwned<std::vector<std::unique_ptr<Sink>>>
 }
 
 
-
+// Sink which writes to sequence of SingleFileStorageSinks. Next sink is
+// requested when size of current exceeds the limit. Final size of single
+// sink depends on writes contents and is slightly bigger then the limit.
+// Also, at this point size calculation does not include storage metadata
+// and raw storage index.
 class StorageSink : public Sink {
  public:
   StorageSink(const TupleSchema& schema,
-              std::unique_ptr<WritableStorage> storage,
+              std::unique_ptr<WritableRawStorage> storage,
               BufferAllocator* allocator)
       : schema_(schema),
         storage_(std::move(storage)),
@@ -209,7 +221,7 @@ class StorageSink : public Sink {
  private:
   FailureOrVoid MaybeChangeSink() {
     if (finalized_ || (storage_sink_.get() != nullptr &&
-        page_stream_->WrittenBytes() < kMaxDataBytesInFile)) {
+        storage_sink_->WrittenBytes() < kMaxDataBytesInFile)) {
       return Success();
     }
 
@@ -243,14 +255,14 @@ class StorageSink : public Sink {
         metadata_writer(metadata_writer_result.release());
 
     // Create PageSinks
-    FailureOrOwned<vector<std::unique_ptr<Sink>>> page_sinks_result =
+    FailureOrOwned<vector<std::unique_ptr<PageSink>>> page_sinks_result =
         CreatePageSinks(*families,
                         schema_,
                         page_stream_,
                         metadata_writer,
                         allocator_);
     PROPAGATE_ON_FAILURE(page_sinks_result);
-    std::unique_ptr<std::vector<std::unique_ptr<Sink>>>
+    std::unique_ptr<std::vector<std::unique_ptr<PageSink>>>
         page_sinks(page_sinks_result.release());
 
     if (storage_sink_.get() != nullptr) {
@@ -267,7 +279,7 @@ class StorageSink : public Sink {
   const TupleSchema schema_;
   std::unique_ptr<SingleFileStorageSink> storage_sink_;
   std::shared_ptr<PageStreamWriter> page_stream_;
-  std::unique_ptr<WritableStorage> storage_;
+  std::unique_ptr<WritableRawStorage> storage_;
   BufferAllocator* allocator_;
   bool finalized_;
 };
@@ -278,16 +290,17 @@ class StorageSink : public Sink {
 
 FailureOrOwned<Sink> CreateMultiFilesStorageSink(
     const TupleSchema& schema,
-    std::unique_ptr<WritableStorage> storage,
+    std::unique_ptr<WritableRawStorage> storage,
     BufferAllocator* allocator) {
   return Success(new StorageSink(schema,
                                  std::move(storage),
                                  allocator));
 }
 
+
 FailureOrOwned<Sink> CreateFileStorageSink(
     const TupleSchema& schema,
-    std::unique_ptr<WritableStorage> storage,
+    std::unique_ptr<WritableRawStorage> storage,
     BufferAllocator* allocator) {
   std::unique_ptr<vector<std::unique_ptr<const SingleSourceProjector>>>
       projectors(new vector<std::unique_ptr<const SingleSourceProjector>>());
@@ -319,34 +332,35 @@ FailureOrOwned<Sink> CreateFileStorageSink(
       metadata_writer(metadata_writer_result.release());
 
   // Create PageSinks
-  FailureOrOwned<vector<std::unique_ptr<Sink>>> page_sinks_result =
+  FailureOrOwned<vector<std::unique_ptr<PageSink>>> page_sinks_result =
       CreatePageSinks(*families,
                       schema,
                       page_stream,
                       metadata_writer,
                       allocator);
   PROPAGATE_ON_FAILURE(page_sinks_result);
-  std::unique_ptr<std::vector<std::unique_ptr<Sink>>>
+  std::unique_ptr<std::vector<std::unique_ptr<PageSink>>>
       page_sinks(page_sinks_result.release());
 
   return Success(new SingleFileStorageSink(std::move(page_sinks),
-                                 std::move(projectors),
-                                 page_stream,
-                                 metadata_writer));
+                                           std::move(projectors),
+                                           page_stream,
+                                           metadata_writer));
 }
+
 
 // For testing purposes only.
 FailureOrOwned<Sink> CreateStorageSink(
-    std::unique_ptr<std::vector<std::unique_ptr<Sink>>> page_sinks,
+    std::unique_ptr<std::vector<std::unique_ptr<PageSink>>> page_sinks,
     std::shared_ptr<PageStreamWriter> page_stream,
     std::shared_ptr<MetadataWriter> metadata_writer) {
   std::unique_ptr<std::vector<
       std::unique_ptr<const SingleSourceProjector>>> projectors(
           new std::vector<std::unique_ptr<const SingleSourceProjector>>());
   return Success(new SingleFileStorageSink(std::move(page_sinks),
-                                 std::move(projectors),
-                                 page_stream,
-                                 metadata_writer));
+                                           std::move(projectors),
+                                           page_stream,
+                                           metadata_writer));
 }
 
 }  // namespace supersonic

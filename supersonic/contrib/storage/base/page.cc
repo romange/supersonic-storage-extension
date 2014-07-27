@@ -188,51 +188,8 @@ FailureOrOwned<Page> CreatePageImplementation(Buffer buffer,
                                std::move(byte_buffers)));
 }
 
-
-// Empty page, without underlying buffer.
-// Throws on most operations.
-class EmptyPage : public Page {
- public:
-  EmptyPage() {
-    header_.total_size = sizeof(struct PageHeader);
-    header_.byte_buffers_count = 0;
-  }
-
-  ~EmptyPage() {}
-
-  const struct PageHeader& PageHeader() const {
-    return header_;
-  }
-
-  FailureOr<const struct ByteBufferHeader*>
-        ByteBufferHeader(int byte_buffer_index) const {
-    THROW(new Exception(ERROR_INVALID_ARGUMENT_TYPE,
-                        "Accessing buffer from empty page."));
-  }
-
-  FailureOr<const void*> ByteBuffer(int byte_buffer_index) const {
-    THROW(new Exception(ERROR_INVALID_ARGUMENT_TYPE,
-                        "Accessing buffer from empty page."));
-  }
-
-  const void* RawData() const {
-    return &header_;
-  }
-
-  bool IsEmpty() const {
-    return true;
-  }
-
- private:
-  struct PageHeader header_;
-};
-
 }  // namespace
 
-const Page* Page::EmptyPage() {
-  static class EmptyPage page;
-  return &page;
-}
 
 FailureOrOwned<Page> CreatePage(std::unique_ptr<const Buffer> buffer) {
   uint8_t* raw_data = static_cast<uint8_t*>(buffer->data());
@@ -240,6 +197,7 @@ FailureOrOwned<Page> CreatePage(std::unique_ptr<const Buffer> buffer) {
                                   std::unique_ptr<const Buffer> >
       (std::move(buffer), raw_data);
 }
+
 
 FailureOrOwned<Page> CreatePageView(const Buffer& buffer) {
   uint8_t* raw_data = static_cast<uint8_t*>(buffer.data());

@@ -21,7 +21,7 @@
 
 #include "supersonic/base/exception/result.h"
 #include "supersonic/base/memory/memory.h"
-#include "supersonic/contrib/storage/base/storage.h"
+#include "supersonic/contrib/storage/base/raw_storage.h"
 #include "supersonic/cursor/infrastructure/writer.h"
 
 
@@ -30,12 +30,12 @@ namespace supersonic {
 
 FailureOrOwned<Sink> CreateMultiFilesStorageSink(
     const TupleSchema& schema,
-    std::unique_ptr<WritableStorage> storage,
+    std::unique_ptr<WritableRawStorage> storage,
     BufferAllocator* allocator);
 
 FailureOrOwned<Sink> CreateFileStorageSink(
     const TupleSchema& schema,
-    std::unique_ptr<WritableStorage> storage,
+    std::unique_ptr<WritableRawStorage> storage,
     BufferAllocator* buffer_allocator);
 
 }  // namespace supersonic

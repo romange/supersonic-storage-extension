@@ -27,7 +27,13 @@ class FileSeries {
   virtual ~FileSeries() {}
 
   // Returns next name in file series.
-  virtual std::string NextFileName() = 0;
+  virtual std::string Next() = 0;
+
+  // Returns next name in file series, but does not shift the iterator.
+  virtual std::string PeepNext() = 0;
+
+  // Returns whether there is next file in series.
+  virtual bool HasNext() = 0;
 };
 
 // An enumerated series of file names, with number as a suffix.
@@ -35,6 +41,11 @@ class FileSeries {
 // "data.2" etc.
 std::unique_ptr<FileSeries>
     EnumeratedFileSeries(const std::string& base_name);
+
+
+// A "series" with only single file.
+std::unique_ptr<FileSeries>
+    SingleFileSeries(const std::string& name);
 
 }  // namespace supersonic
 

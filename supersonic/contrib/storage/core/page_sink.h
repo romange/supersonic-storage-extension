@@ -28,9 +28,17 @@
 
 namespace supersonic {
 
+class PageSink : public Sink {
+ public:
+  virtual ~PageSink() {}
+
+  // Returns number of bytes written to currently filled page.
+  virtual size_t BytesInPage() = 0;
+};
+
 // Creates a PageSink, which dumps projected data into given page stream.
 // Takes ownership over projector.
-FailureOrOwned<Sink> CreatePageSink(
+FailureOrOwned<PageSink> CreatePageSink(
     std::unique_ptr<const BoundSingleSourceProjector> projector,
     std::shared_ptr<PageStreamWriter> page_stream_writer,
     std::shared_ptr<MetadataWriter> metadata_writer,

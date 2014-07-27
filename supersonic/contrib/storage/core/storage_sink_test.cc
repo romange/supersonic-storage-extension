@@ -25,7 +25,7 @@
 #include "supersonic/base/infrastructure/tuple_schema.h"
 #include "supersonic/base/exception/result.h"
 #include "supersonic/base/memory/memory.h"
-#include "supersonic/contrib/storage/base/storage.h"
+#include "supersonic/contrib/storage/base/raw_storage.h"
 #include "supersonic/contrib/storage/base/storage_metadata.h"
 #include "supersonic/contrib/storage/core/page_sink.h"
 #include "supersonic/contrib/storage/util/schema_converter.h"
@@ -38,16 +38,17 @@
 namespace supersonic {
 
 FailureOrOwned<Sink> CreateStorageSink(
-    std::unique_ptr<std::vector<std::unique_ptr<Sink>>> page_sinks,
+    std::unique_ptr<std::vector<std::unique_ptr<PageSink>>> page_sinks,
     std::shared_ptr<PageStreamWriter> page_stream,
     std::shared_ptr<MetadataWriter> metadata_writer);
 
 namespace {
 
-class MockPageSink : public Sink {
+class MockPageSink : public PageSink {
  public:
   MOCK_METHOD1(Write, FailureOr<rowcount_t>(const View& data));
   MOCK_METHOD0(Finalize, FailureOrVoid());
+  MOCK_METHOD0(BytesInPage, size_t());
 
   MockPageSink* ExpectFinalize() {
     EXPECT_CALL(*this, Finalize()).WillOnce(::testing::Return(Success()));
@@ -131,8 +132,8 @@ MATCHER_P2(EqualsBuffer, buffer, length, "") {
 
 
 TEST_F(StorageSinkTest, WritingToFinalizedThrows) {
-  std::unique_ptr<std::vector<std::unique_ptr<Sink>>> page_sinks(
-      new std::vector<std::unique_ptr<Sink>>());
+  std::unique_ptr<std::vector<std::unique_ptr<PageSink>>> page_sinks(
+      new std::vector<std::unique_ptr<PageSink>>());
   std::shared_ptr<PageStreamWriter> page_stream(
       (new MockPageStreamWriter)
           ->ExpectAppendPage(*metadata_page)->ExpectFinalize());
@@ -154,8 +155,8 @@ TEST_F(StorageSinkTest, WritingToFinalizedThrows) {
 }
 
 TEST_F(StorageSinkTest, FinalizesAffectsPageSinksAndMetadata) {
-  std::unique_ptr<std::vector<std::unique_ptr<Sink> > > page_sinks(
-      new std::vector<std::unique_ptr<Sink> >());
+  std::unique_ptr<std::vector<std::unique_ptr<PageSink>>> page_sinks(
+      new std::vector<std::unique_ptr<PageSink>>());
   page_sinks->emplace_back((new MockPageSink())->ExpectFinalize());
   page_sinks->emplace_back((new MockPageSink())->ExpectFinalize());
   std::shared_ptr<PageStreamWriter> page_stream(
@@ -178,8 +179,8 @@ TEST_F(StorageSinkTest, DataIsPassedToPageSinks) {
   TupleSchema schema = CreateTupleSchema();
   Table table(schema, HeapBufferAllocator::Get());
   const View& view = table.view();
-  std::unique_ptr<std::vector<std::unique_ptr<Sink> > > page_sinks(
-      new std::vector<std::unique_ptr<Sink> >());
+  std::unique_ptr<std::vector<std::unique_ptr<PageSink>>> page_sinks(
+      new std::vector<std::unique_ptr<PageSink>>());
   page_sinks->emplace_back(
       (new MockPageSink())->ExpectFinalize()->ExpectWrite(view));
   page_sinks->emplace_back(

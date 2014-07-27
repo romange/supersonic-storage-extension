@@ -31,10 +31,12 @@ struct PageHeader {
   uint32_t byte_buffers_count;
 };
 
-// Contains basic byte buffor information.
+// Contains basic byte buffer information.
+// TODO(wzoltak): We may want to add something here in future (like compression
+//                method), but it will kill compatibility with previous
+//                versions. Consider usage of protobuf.
 struct ByteBufferHeader {
   uint64_t length;
-  // TODO(wzoltak): compression method.
 };
 
 // Size of serialized PageHeader object in bytes.
@@ -47,7 +49,7 @@ const int kSerializedByteBufferHeaderSize = 8;
 const int kSerializedOffsetSize = 8;
 
 
-// In-memory data chunk in storage layer. Contains a set of byte buffers.
+// In-memory, raw data chunk in storage layer. Contains a set of byte buffers.
 // Exposes APIs that allow reading.
 class Page {
  public:
@@ -70,10 +72,6 @@ class Page {
 
   // Returns true when page is empty (has 0 byte buffers).
   virtual bool IsEmpty() const = 0;
-
-  // Returns an empty page. May be used e.g. as an indicator of EOS in page
-  // streams.
-  static const Page* EmptyPage();
 };
 
 // Creates Page object from buffer containing raw data. Takes ownership over

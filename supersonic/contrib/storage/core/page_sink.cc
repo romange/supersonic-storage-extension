@@ -32,12 +32,13 @@
 
 
 namespace supersonic {
+namespace {
 
 const uint64_t kPageSizeLimit = 100 * 1024;  // 100KB
 
-class PageSink : public Sink {
+class PageSinkImplementation : public PageSink {
  public:
-  explicit PageSink(
+  explicit PageSinkImplementation(
       std::unique_ptr<const BoundSingleSourceProjector> projector,
       std::shared_ptr<PageStreamWriter> page_stream_writer,
       std::unique_ptr<
@@ -55,14 +56,14 @@ class PageSink : public Sink {
         page_family_(page_family),
         rows_in_page_(0) {}
 
-  virtual ~PageSink() {
+  virtual ~PageSinkImplementation() {
     if (!finalized_) {
       LOG(DFATAL)<< "Destroying not finalized PageSink.";
       Finalize();
     }
   }
 
-  virtual FailureOr<rowcount_t> Write(const View& data) {
+  FailureOr<rowcount_t> Write(const View& data) {
     if (finalized_) {
       THROW(new Exception(ERROR_INVALID_STATE,
               "Writing to finalized page sink."));
@@ -73,7 +74,6 @@ class PageSink : public Sink {
     projector_->Project(data, &projected_data);
 
     // TODO(wzoltak): Check if schema matches in debug mode?
-
     for (int column_index = 0; column_index < projected_data.column_count();
         column_index++) {
       FailureOrVoid write_result = (*column_writers_)[column_index]
@@ -91,7 +91,7 @@ class PageSink : public Sink {
     return Success(projected_data.row_count());
   }
 
-  virtual FailureOrVoid Finalize() {
+  FailureOrVoid Finalize() {
     if (!finalized_) {
       if (builder_dirty_) {
         PROPAGATE_ON_FAILURE(WritePage());
@@ -99,6 +99,10 @@ class PageSink : public Sink {
       finalized_ = true;
     }
     return Success();
+  }
+
+  size_t BytesInPage() {
+    return page_builder_->PageSize();
   }
 
  private:
@@ -133,10 +137,13 @@ class PageSink : public Sink {
   std::shared_ptr<MetadataWriter> metadata_writer_;
   uint32_t page_family_;
   uint64 rows_in_page_;
-  DISALLOW_COPY_AND_ASSIGN(PageSink);
+  DISALLOW_COPY_AND_ASSIGN(PageSinkImplementation);
 };
 
-FailureOrOwned<Sink> CreatePageSink(
+}  // namespace
+
+
+FailureOrOwned<PageSink> CreatePageSink(
     std::unique_ptr<const BoundSingleSourceProjector> projector,
     std::shared_ptr<PageStreamWriter> page_stream_writer,
     std::shared_ptr<MetadataWriter> metadata_writer,
@@ -160,18 +167,19 @@ FailureOrOwned<Sink> CreatePageSink(
 
   page_builder->Reset(streams_count);
 
-  std::unique_ptr<PageSink> sink(
-      new PageSink(std::move(projector),
-                   page_stream_writer,
-                   std::move(serializers),
-                   page_builder,
-                   metadata_writer,
-                   page_family));
+  std::unique_ptr<PageSinkImplementation> sink(
+      new PageSinkImplementation(std::move(projector),
+                                 page_stream_writer,
+                                 std::move(serializers),
+                                 page_builder,
+                                 metadata_writer,
+                                 page_family));
   return Success(sink.release());
 }
 
+
 // Factory function for testing purposes.
-FailureOrOwned<Sink> CreatePageSink(
+FailureOrOwned<PageSink> CreatePageSink(
     std::unique_ptr<const BoundSingleSourceProjector> projector,
     std::shared_ptr<PageStreamWriter> page_stream_writer,
     std::unique_ptr<
@@ -179,13 +187,13 @@ FailureOrOwned<Sink> CreatePageSink(
     std::shared_ptr<PageBuilder> page_builder,
     std::shared_ptr<MetadataWriter> metadata_writer,
     uint32_t page_family) {
-  std::unique_ptr<PageSink> page_sink(
-      new PageSink(std::move(projector),
-                   page_stream_writer,
-                   std::move(column_writers),
-                   page_builder,
-                   metadata_writer,
-                   page_family));
+  std::unique_ptr<PageSinkImplementation> page_sink(
+      new PageSinkImplementation(std::move(projector),
+                                 page_stream_writer,
+                                 std::move(column_writers),
+                                 page_builder,
+                                 metadata_writer,
+                                 page_family));
   return Success(page_sink.release());
 }
 

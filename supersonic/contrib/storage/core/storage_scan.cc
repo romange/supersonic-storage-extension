@@ -24,7 +24,7 @@
 #include "supersonic/base/exception/result.h"
 #include "supersonic/base/infrastructure/projector.h"
 #include "supersonic/base/memory/memory.h"
-#include "supersonic/contrib/storage/base/storage.h"
+#include "supersonic/contrib/storage/base/raw_storage.h"
 #include "supersonic/contrib/storage/base/storage_metadata.h"
 #include "supersonic/contrib/storage/core/page_reader.h"
 #include "supersonic/contrib/storage/util/finally.h"
@@ -232,7 +232,7 @@ class MultiFileStorageScan : public BasicCursor {
   MultiFileStorageScan(const TupleSchema& schema,
                        std::unique_ptr<DataStorage> data_storage,
                        std::unique_ptr<Cursor> initial_cursor,
-                       std::unique_ptr<ReadableStorage> readable_storage,
+                       std::unique_ptr<ReadableRawStorage> readable_storage,
                        BufferAllocator* allocator)
       : BasicCursor(schema),
         schema_(schema),
@@ -247,7 +247,6 @@ class MultiFileStorageScan : public BasicCursor {
     PROPAGATE_ON_FAILURE(data);
 
     if (data.is_eos()) {
-      printf("EOS!\n");
       if (!readable_storage_->HasNext()) {
         return data;
       }
@@ -290,7 +289,6 @@ class MultiFileStorageScan : public BasicCursor {
   }
 
   FailureOrVoid NextDataStorageAndCursor() {
-    printf("[MultiFileStorageScan] Getting next cursor\n");
     FailureOrOwned<RandomPageReader> random_page_reader_result =
         readable_storage_->NextRandomPageReader();
     PROPAGATE_ON_FAILURE(random_page_reader_result);
@@ -312,7 +310,7 @@ class MultiFileStorageScan : public BasicCursor {
   TupleSchema schema_;
   std::unique_ptr<DataStorage> data_storage_;
   std::unique_ptr<Cursor> cursor_;
-  std::unique_ptr<ReadableStorage> readable_storage_;
+  std::unique_ptr<ReadableRawStorage> readable_storage_;
   BufferAllocator* allocator_;
 };
 
@@ -360,7 +358,7 @@ FailureOrOwned<DataStorage>
 
 
 FailureOrOwned<Cursor>
-    FileStorageScan(std::unique_ptr<ReadableStorage> storage,
+    FileStorageScan(std::unique_ptr<ReadableRawStorage> storage,
                     rowcount_t starting_from_row,
                     BufferAllocator* allocator) {
   // Create PageStreamReader
@@ -379,7 +377,7 @@ FailureOrOwned<Cursor>
 
 
 FailureOrOwned<Cursor>
-    FileStorageScan(std::unique_ptr<ReadableStorage> storage,
+    FileStorageScan(std::unique_ptr<ReadableRawStorage> storage,
                     rowcount_t starting_from_row,
                     const TupleSchema& schema,
                     BufferAllocator* allocator) {
@@ -400,7 +398,7 @@ FailureOrOwned<Cursor>
 
 
 FailureOrOwned<Cursor> MultiFilesScan(
-    std::unique_ptr<ReadableStorage> storage,
+    std::unique_ptr<ReadableRawStorage> storage,
     rowcount_t starting_from_row,
     const TupleSchema& schema,
     BufferAllocator* allocator) {

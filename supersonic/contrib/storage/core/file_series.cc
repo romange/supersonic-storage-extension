@@ -15,6 +15,7 @@
 
 #include "supersonic/contrib/storage/core/file_series.h"
 
+#include <glog/logging.h>
 #include <memory>
 #include <sstream>
 
@@ -31,16 +32,55 @@ class EnumeratedFileSeries : public FileSeries {
 
   virtual ~EnumeratedFileSeries() {}
 
-  std::string NextFileName() {
+  std::string Next() {
+    const std::string& next = PeepNext();
+    chunk_++;
+    return next;
+  }
+
+  std::string PeepNext() {
     std::stringstream ss;
-    ss << name_ << "." << chunk_++;
+    ss << name_ << "." << chunk_;
     return ss.str();
+  }
+
+  bool HasNext() {
+    printf("has next\n");
+    fflush(stdout);
+    return true;
   }
 
  private:
   const std::string name_;
   size_t chunk_;
   DISALLOW_COPY_AND_ASSIGN(EnumeratedFileSeries);
+};
+
+
+class SingleFileSeries : public FileSeries {
+ public:
+  explicit SingleFileSeries(const std::string& name)
+      : name_(name),
+        exhausted_(false) {}
+
+  std::string Next() {
+    exhausted_ = true;
+    return PeepNext();
+  }
+
+  std::string PeepNext() {
+    DCHECK(!exhausted_);
+    return name_;
+  }
+
+  bool HasNext() {
+    return exhausted_;
+  }
+
+ private:
+  const std::string name_;
+  bool exhausted_;
+  DISALLOW_COPY_AND_ASSIGN(SingleFileSeries);
 };
 
 }  // namespace
@@ -50,6 +90,13 @@ std::unique_ptr<FileSeries>
     EnumeratedFileSeries(const std::string& base_name) {
   return std::unique_ptr<FileSeries>(
       new class EnumeratedFileSeries(base_name));
+}
+
+
+std::unique_ptr<FileSeries>
+    SingleFileSeries(const std::string& name) {
+  return std::unique_ptr<FileSeries>(
+      new class SingleFileSeries(name));
 }
 
 

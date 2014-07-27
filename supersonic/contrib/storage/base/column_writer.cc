@@ -44,10 +44,10 @@ class ColumnWriterImplementation : public ColumnWriter {
 
   virtual FailureOrVoid WriteColumn(const Column& column,
                                     rowcount_t row_count) {
-    DCHECK(column.type_info().type() == handled_type_)
+    CHECK(column.type_info().type() == handled_type_)
         << "Writing column of type " << column.type_info().type()
         << " into ColumnWriter for type " << handled_type_;
-    DCHECK((column.attribute().nullability() == NULLABLE) == write_is_null_)
+    CHECK((column.attribute().nullability() == NULLABLE) == write_is_null_)
         << "Wrong column Nullability ("
         << column.attribute().nullability() << ") while writing into"
         << " ColumnWriter";

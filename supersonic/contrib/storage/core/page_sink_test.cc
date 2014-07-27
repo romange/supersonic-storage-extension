@@ -35,7 +35,7 @@
 
 namespace supersonic {
 
-FailureOrOwned<Sink> CreatePageSink(
+FailureOrOwned<PageSink> CreatePageSink(
     std::unique_ptr<const BoundSingleSourceProjector> projector,
     std::shared_ptr<PageStreamWriter> page_stream_writer,
     std::unique_ptr<std::vector<std::unique_ptr<ColumnWriter> > >
@@ -153,7 +153,7 @@ TEST_F(PageSinkTest, DataPassedToColumnWriters) {
       (new MockColumnWriter(2))
           ->ExpectingWriteColumn(&table->view().column(1)));
 
-  FailureOrOwned<Sink> page_sink_result =
+  FailureOrOwned<PageSink> page_sink_result =
       CreatePageSink(std::move(projector),
                      page_stream,
                      std::move(column_writers),
@@ -178,7 +178,7 @@ TEST_F(PageSinkTest, FinalizeFinalizesStream) {
   std::shared_ptr<PageStreamWriter> page_stream(new MockPageStreamWriter());
   std::shared_ptr<MetadataWriter> metadata_writer(new MockMetadataWriter());
 
-  FailureOrOwned<Sink> page_sink_result =
+  FailureOrOwned<PageSink> page_sink_result =
       CreatePageSink(std::move(projector),
                      page_stream,
                      metadata_writer,
@@ -205,7 +205,7 @@ TEST_F(PageSinkTest, FinalizingDumpsLastPage) {
       metadata_writer((new MockMetadataWriter())
           ->ExpectingAppendPage(table->row_count()));
 
-  FailureOrOwned<Sink> page_sink_result =
+  FailureOrOwned<PageSink> page_sink_result =
       CreatePageSink(std::move(projector),
                      page_stream,
                      metadata_writer,
@@ -240,7 +240,7 @@ TEST_F(PageSinkTest, IsUsingProjector) {
   std::unique_ptr<const BoundSingleSourceProjector>
       projector(projector_result.release());
 
-  FailureOrOwned<Sink> page_sink_result =
+  FailureOrOwned<PageSink> page_sink_result =
       CreatePageSink(std::move(projector),
                      page_stream,
                      metadata_writer,

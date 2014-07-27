@@ -19,7 +19,6 @@
 #include "supersonic/base/infrastructure/tuple_schema.h"
 #include "supersonic/base/memory/memory.h"
 #include "supersonic/cursor/infrastructure/writer.h"
-#include "supersonic/contrib/storage/base/storage.h"
 #include "supersonic/contrib/storage/core/file_storage.h"
 #include "supersonic/contrib/storage/core/test_data.h"
 #include "supersonic/contrib/storage/core/storage_scan.h"
@@ -27,10 +26,6 @@
 #include "supersonic/contrib/storage/util/path_util.h"
 #include "supersonic/utils/file.h"
 
-
-#include <iostream>
-
-#include "supersonic/cursor/infrastructure/view_printer.h"
 
 namespace supersonic {
 namespace {
@@ -89,11 +84,11 @@ TEST_F(IntegrationTest, FullFlow) {
 
   std::unique_ptr<FileSeries> output_file_series =
       EnumeratedFileSeries(file_path);
-  FailureOrOwned<WritableStorage> writable_storage_result =
-        CreateWritableFileStorage<File, PathUtil>(std::move(output_file_series),
-                                                  allocator);
+  FailureOrOwned<WritableRawStorage> writable_storage_result =
+      WritableFileStorage<File, PathUtil>(std::move(output_file_series),
+                                          allocator);
   ASSERT_TRUE(writable_storage_result.is_success());
-  std::unique_ptr<WritableStorage>
+  std::unique_ptr<WritableRawStorage>
       writable_storage(writable_storage_result.release());
 
   FailureOrOwned<Sink> storage_sink_result =
@@ -107,8 +102,8 @@ TEST_F(IntegrationTest, FullFlow) {
   int seeds[] = { 124, -543, 8656, -74512, 23412, 13412, 412 };
   Generator generator(schema_, seeds, pieces_);
   size_t written = 0;
-  size_t step = 1000;
-  for (int i = 0; i < 1000; i++) {
+  size_t step = 2000;
+  for (int i = 0; i < 5000; i++) {
     const View& view = generator.Generate(step);
     ASSERT_TRUE(storage_sink->Write(view).is_success());
     written += step;
@@ -118,18 +113,18 @@ TEST_F(IntegrationTest, FullFlow) {
 
   std::unique_ptr<FileSeries> input_file_series =
       EnumeratedFileSeries(file_path);
-  FailureOrOwned<ReadableStorage> readable_storage_result =
-      CreateReadableFileStorage<File, PathUtil>(std::move(input_file_series),
-                                                allocator);
+  FailureOrOwned<ReadableRawStorage> readable_storage_result =
+      ReadableFileStorage<File, PathUtil>(std::move(input_file_series),
+                                          allocator);
   ASSERT_TRUE(readable_storage_result.is_success());
-  std::unique_ptr<ReadableStorage>
+  std::unique_ptr<ReadableRawStorage>
       readable_storage(readable_storage_result.release());
 
 
-  TupleSchema zzz;
-  zzz.add_attribute(Attribute("magic index", DOUBLE, NOT_NULLABLE));
-  zzz.add_attribute(Attribute("nickname", STRING, NULLABLE));
-  zzz.add_attribute(Attribute("birthday", DATE, NOT_NULLABLE));
+  TupleSchema schema_subset;
+  schema_subset.add_attribute(Attribute("magic index", DOUBLE, NOT_NULLABLE));
+  schema_subset.add_attribute(Attribute("nickname", STRING, NULLABLE));
+  schema_subset.add_attribute(Attribute("birthday", DATE, NOT_NULLABLE));
 
 
   std::vector<int> columns;
@@ -142,13 +137,8 @@ TEST_F(IntegrationTest, FullFlow) {
   FailureOrOwned<Cursor> storage_scan_result =
       MultiFilesScan(std::move(readable_storage),
                      starting_from_row,
-                     zzz,
+                     schema_subset,
                      allocator);
-  printf("storage created!\n");
-  fflush(stdout);
-  if (storage_scan_result.is_failure()) {
-    printf("%s\n", storage_scan_result.exception().ToString().c_str());
-  }
   ASSERT_TRUE(storage_scan_result.is_success());
   std::unique_ptr<Cursor> storage_scan(storage_scan_result.release());
 

@@ -13,10 +13,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 //
-// Storage is represented by series of page readers / writers. Those can be used
-// to split storage into logical chunks. E.g. in case of file storage - each
-// of them may represent a single file. Each of those "chunks" should be usable
-// as a storage on its own.
+// Raw storage allows reading / writing of raw data (basically, bytes) stored
+// in pages.
+//
+// Raw storage is represented by series of page readers / writers. Those can be
+// used to split storage into logical chunks. E.g. in case of file storage -
+// each of them may represent a single file.
 
 #ifndef SUPERSONIC_CONTRIB_STORAGE_BASE_STORAGE_H_
 #define SUPERSONIC_CONTRIB_STORAGE_BASE_STORAGE_H_
@@ -29,19 +31,19 @@
 
 namespace supersonic {
 
-// Base interface for writable persistent storage.
-class WritableStorage {
+// Base interface for writable persistent storage of raw data.
+class WritableRawStorage {
  public:
-  virtual ~WritableStorage() {}
+  virtual ~WritableRawStorage() {}
 
   // Returns next PageStreamWriter for given storage.
   virtual FailureOrOwned<PageStreamWriter> NextPageStreamWriter() = 0;
 };
 
-// Base interface for readable persistent storage.
-class ReadableStorage {
+// Base interface for readable persistent storage of raw data.
+class ReadableRawStorage {
  public:
-  virtual ~ReadableStorage() {}
+  virtual ~ReadableRawStorage() {}
 
   // Returns next RandomPageReader for given storage.
   virtual FailureOrOwned<RandomPageReader> NextRandomPageReader() = 0;
