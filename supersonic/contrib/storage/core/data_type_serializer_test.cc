@@ -25,7 +25,6 @@
 #include "supersonic/base/infrastructure/tuple_schema.h"
 #include "supersonic/cursor/infrastructure/table.h"
 
-
 namespace supersonic {
 namespace {
 
@@ -63,7 +62,6 @@ class DataTypeSerializerTest : public ::testing::Test {
     std::unique_ptr<Serializer> serializer(serializer_result.release());
 
     serializer->Serialize(&page_builder, 0, &mapped_buffer[0], lengths, arrays);
-
     FailureOrOwned<Page> page_result = page_builder.CreatePage();
     ASSERT_TRUE(page_result.is_success());
     page->reset(page_result.release());
@@ -202,13 +200,24 @@ TEST_F(DataTypeSerializerTest, TestVariableLength) {
       &byte_buffer_header);
 
   char expected_binary[] = {
+      0x02, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00,  // two arrays
+
       0x02, 0x00, 0x00, 0x00,  // two string pieces
-      0x04, 0x00, 0x00, 0x00, 'a', '\0', 'b', '\0',
-      0x06, 0x00, 0x00, 0x00, '0', 'x', '1', '2', '3', '4',
+      0x1A, 0x00, 0x00, 0x00,  // buffer length: 26
+      'a', '\0', 'b', '\0',
+      '0', 'x', '1', '2', '3', '4',
+      0x06, 0x00, 0x00, 0x00, // length: 6
+      0x04, 0x00, 0x00, 0x00, // length: 4
+
+
       0x01, 0x00, 0x00, 0x00,  // one string piece
-      0x00, 0x00, 0x00, 0x00
+      0x0C, 0x00, 0x00, 0x00,  // buffer length: 12
+                               // empty content
+      0x00, 0x00, 0x00, 0x00,  // length: 0
      };
-  size_t expected_binary_length = 30;
+
+  size_t expected_binary_length = 46;
   ASSERT_EQ(expected_binary_length, byte_buffer_header->length);
   ASSERT_EQ(0, memcmp(&expected_binary, data, expected_binary_length));
 
@@ -220,13 +229,22 @@ TEST_F(DataTypeSerializerTest, TestVariableLength) {
         &byte_buffer_header);
 
   char expected_string[] = {
+      0x02, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00,  // two arrays
+
       0x02, 0x00, 0x00, 0x00,  // two string pieces
-      0x05, 0x00, 0x00, 0x00, 'a', 'b', 'c', 'd', 'e',
-      0x00, 0x00, 0x00, 0x00,
+      0x15, 0x00, 0x00, 0x00,  // buffer length: 21
+      'a', 'b', 'c', 'd', 'e',
+      0x00, 0x00, 0x00, 0x00,  // length: 0
+      0x05, 0x00, 0x00, 0x00,  // length: 5
+
       0x01, 0x00, 0x00, 0x00,  // one string piece
-      0x08, 0x00, 0x00, 0x00, 'H', 'e', 'y', ' ', 'J', 'o', 'e', '!'
+      0x14, 0x00, 0x00, 0x00,  // buffer length: 20
+      'H', 'e', 'y', ' ', 'J', 'o', 'e', '!',
+      0x08, 0x00, 0x00, 0x00   // length: 8
   };
-  size_t expected_string_length = 33;
+
+  size_t expected_string_length = 49;
   ASSERT_EQ(expected_string_length, byte_buffer_header->length);
   ASSERT_EQ(0, memcmp(&expected_string, data, expected_string_length));
 }

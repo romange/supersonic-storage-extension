@@ -199,9 +199,11 @@ class StorageSink : public Sink {
  public:
   StorageSink(const TupleSchema& schema,
               std::unique_ptr<WritableRawStorage> storage,
+              std::unique_ptr<SchemaPartitioner> schema_partitioner,
               BufferAllocator* allocator)
       : schema_(schema),
         storage_(std::move(storage)),
+        schema_partitioner_(std::move(schema_partitioner)),
         allocator_(allocator),
         finalized_(false) {}
 
@@ -235,14 +237,8 @@ class StorageSink : public Sink {
     page_stream_.reset(page_stream_result.release());
 
     // Partition schema
-    // TODO(wzoltak): magic constant
-    FailureOrOwned<SchemaPartitioner> partitioner_result =
-        CreateFixedSizeSchemaParitioner(2);
-    PROPAGATE_ON_FAILURE(partitioner_result);
-    std::unique_ptr<SchemaPartitioner> partitioner(partitioner_result.release());
-
     FailureOrOwned<std::vector<TupleSchema>> partitions =
-        partitioner->Partition(schema_);
+        schema_partitioner_->Partition(schema_);
     PROPAGATE_ON_FAILURE(partitions);
     std::unique_ptr<std::vector<Family>> families
         = EnumeratePartitions(*partitions, kFirstDataPageFamily);
@@ -280,6 +276,7 @@ class StorageSink : public Sink {
   std::unique_ptr<SingleFileStorageSink> storage_sink_;
   std::shared_ptr<PageStreamWriter> page_stream_;
   std::unique_ptr<WritableRawStorage> storage_;
+  std::unique_ptr<SchemaPartitioner> schema_partitioner_;
   BufferAllocator* allocator_;
   bool finalized_;
 };
@@ -291,9 +288,11 @@ class StorageSink : public Sink {
 FailureOrOwned<Sink> CreateMultiFilesStorageSink(
     const TupleSchema& schema,
     std::unique_ptr<WritableRawStorage> storage,
+    std::unique_ptr<SchemaPartitioner> schema_partitioner,
     BufferAllocator* allocator) {
   return Success(new StorageSink(schema,
                                  std::move(storage),
+                                 std::move(schema_partitioner),
                                  allocator));
 }
 
@@ -301,6 +300,7 @@ FailureOrOwned<Sink> CreateMultiFilesStorageSink(
 FailureOrOwned<Sink> CreateFileStorageSink(
     const TupleSchema& schema,
     std::unique_ptr<WritableRawStorage> storage,
+    std::unique_ptr<SchemaPartitioner> schema_partitioner,
     BufferAllocator* allocator) {
   std::unique_ptr<vector<std::unique_ptr<const SingleSourceProjector>>>
       projectors(new vector<std::unique_ptr<const SingleSourceProjector>>());
@@ -311,15 +311,8 @@ FailureOrOwned<Sink> CreateFileStorageSink(
   PROPAGATE_ON_FAILURE(page_stream_result);
   std::shared_ptr<PageStreamWriter> page_stream(page_stream_result.release());
 
-  // Partition schema
-  // TODO(wzoltak): magic constant
-  FailureOrOwned<SchemaPartitioner> partitioner_result =
-      CreateFixedSizeSchemaParitioner(2);
-  PROPAGATE_ON_FAILURE(partitioner_result);
-  std::unique_ptr<SchemaPartitioner> partitioner(partitioner_result.release());
-
   FailureOrOwned<std::vector<TupleSchema>> partitions =
-      partitioner->Partition(schema);
+      schema_partitioner->Partition(schema);
   PROPAGATE_ON_FAILURE(partitions);
   std::unique_ptr<std::vector<Family>> families
       = EnumeratePartitions(*partitions, kFirstDataPageFamily);

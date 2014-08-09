@@ -45,8 +45,6 @@ class EnumeratedFileSeries : public FileSeries {
   }
 
   bool HasNext() {
-    printf("has next\n");
-    fflush(stdout);
     return true;
   }
 

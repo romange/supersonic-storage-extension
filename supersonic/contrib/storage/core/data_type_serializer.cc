@@ -102,20 +102,7 @@ class CppBooleanSerializer : public Serializer {
 // Serializer for types which are using StringPiece as `cpp_type`.
 //
 // Data is stored in following format:
-// +---------+---------+-----
-// | Array_1 | Array_2 | ...
-// +---------+---------+-----
-//
-// Array:
-// +---------------------------+---------+---------+-----
-// | uint32_t number_of_pieces | Piece_1 | Piece_2 | ...
-// +---------------------------+---------+---------+-----
-//
-// Piece:
-// +-----------------------+------------+------------+-----
-// | uint32_t piece_length | uint8_t b1 | uint8_t b2 | ...
-// +-----------------------+------------+------------+-----
-//
+//   TODO(wzoltak): fill
 template <DataType T>
 class VariableLengthSerializer : public Serializer {
  public:
@@ -126,43 +113,54 @@ class VariableLengthSerializer : public Serializer {
                           VariantConstPointer data[],
                           const size_t lengths[],
                           const size_t arrays) {
+    uint64_t arrays_count = arrays;
+    PROPAGATE_ON_FAILURE(output_page
+        ->AppendToByteBuffer(output_buffer_number, &arrays, sizeof(uint64_t)));
+
     for (size_t array_index = 0; array_index < arrays; array_index ++) {
       const StringPiece* pieces = data[array_index].as<T>();
       uint32_t pieces_count = lengths[array_index];
-      size_t buffer_length = RequiredBufferSize(pieces, pieces_count);
+      uint32_t buffer_length = RequiredBufferSize(pieces, pieces_count);
 
       FailureOr<void*> buffer_result =
           output_page->NextFromByteBuffer(output_buffer_number, buffer_length);
       PROPAGATE_ON_FAILURE(buffer_result);
       uint8_t* buffer = static_cast<uint8_t*>(buffer_result.get());
 
-      SerializeRow(pieces, pieces_count, buffer);
+      SerializeRow(pieces, pieces_count, buffer, buffer_length);
     }
     return Success();
   }
 
  private:
   void SerializeRow(const StringPiece pieces[],
-                    size_t pieces_count,
-                    uint8_t* buffer) {
+                    uint32_t pieces_count,
+                    uint8_t* buffer,
+                    uint32_t buffer_length) {
+    uint8_t* buffer_start = buffer;
+
     *reinterpret_cast<uint32_t*>(buffer) = pieces_count;
     buffer += sizeof(uint32_t);
+    *reinterpret_cast<uint32_t*>(buffer) = buffer_length;
+    buffer += sizeof(uint32_t);
+
+    uint8_t* data_start = buffer;
+
+    uint32_t* pointers =
+        reinterpret_cast<uint32_t*>(buffer_start + buffer_length);
     for (size_t index = 0; index < pieces_count; index++) {
       const StringPiece& string_piece = pieces[index];
       uint32_t string_piece_length = string_piece.length();
 
-      *reinterpret_cast<uint32_t*>(buffer) = string_piece_length;
-      buffer += sizeof(uint32_t);
-
+      *(--pointers) = string_piece_length;
       memcpy(buffer, string_piece.data(), string_piece_length);
       buffer += string_piece_length;
     }
   }
 
-  size_t RequiredBufferSize(const StringPiece pieces[], size_t count) {
-    size_t lengths_sum = sizeof(uint32_t);
+  uint32_t RequiredBufferSize(const StringPiece pieces[], size_t count) {
+    uint32_t lengths_sum = (2 + count) * sizeof(uint32_t);
     for (int index = 0; index < count; index++) {
-      lengths_sum += sizeof(uint32_t);
       lengths_sum += pieces[index].length();
     }
     return lengths_sum;

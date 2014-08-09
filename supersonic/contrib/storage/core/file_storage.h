@@ -215,16 +215,10 @@ class WritableFileStorageImplementation : public WritableRawStorage {
   virtual ~WritableFileStorageImplementation() {}
 
   FailureOrOwned<PageStreamWriter> NextPageStreamWriter() {
-    printf("------------- %d\n", file_series_.get());
-    printf("------------- %d\n", file_series_->HasNext());
-    fflush(stdout);
-
     if (!file_series_->HasNext()) {
       THROW(new Exception(ERROR_INVALID_STATE,
                           "Unable to obtain next file name in series"));
     }
-    printf("zzzzzzzzzzzzzz");
-    fflush(stdout);
     return CreatePageStreamWriter(file_series_->Next());
   }
 
@@ -469,7 +463,7 @@ class ReadableFileStorageImplementation : public ReadableRawStorage {
 // Creates the ReadableStorage which reads data from files. `FileT` and
 // `PathUtilT` should be supersonic::File and supersonic::PathUtil
 // implementation. Meaning of `path` depends on chosen implementation.
-template<class FileT, class PathUtilT>
+template<class FileT>
 FailureOrOwned<ReadableRawStorage>
     ReadableFileStorage(std::unique_ptr<FileSeries> file_series,
                         BufferAllocator* allocator) {
@@ -482,11 +476,10 @@ FailureOrOwned<ReadableRawStorage>
 // `PathUtilT` should be supersonic::File and supersonic::PathUtil
 // implementation. Meaning of `path` depends on chosen implementation.
 // TODO(wzoltak): fix comment.
-template<class FileT, class PathUtilT>
+template<class FileT>
 FailureOrOwned<WritableRawStorage>
     WritableFileStorage(std::unique_ptr<FileSeries> file_series,
                         BufferAllocator* buffer_allocator) {
-  printf("%d\n", file_series.get());
   return Success(
       new WritableFileStorageImplementation<FileT>(std::move(file_series),
                                                    buffer_allocator));

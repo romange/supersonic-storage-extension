@@ -83,30 +83,21 @@ TEST_F(FileStorageTest, WriteThenRead) {
   // Write page multiple times.
   std::unique_ptr<FileSeries> output_series = EnumeratedFileSeries(file_path);
   FailureOrOwned<WritableRawStorage> writable_storage_result =
-      WritableFileStorage<File, PathUtil>(std::move(output_series),
-                                          HeapBufferAllocator::Get());
+      WritableFileStorage<File>(std::move(output_series),
+                                HeapBufferAllocator::Get());
   ASSERT_TRUE(writable_storage_result.is_success());
   std::unique_ptr<WritableRawStorage>
       writable_storage(writable_storage_result.release());
 
   for (int file = 0; file < files; file++) {
-    printf("aaa\n");
-    fflush(stdout);
-
     FailureOrOwned<PageStreamWriter> page_writer_result =
         writable_storage->NextPageStreamWriter();
     ASSERT_TRUE(page_writer_result.is_success());
     std::unique_ptr<PageStreamWriter> page_writer(page_writer_result.release());
 
-    printf("bbb\n");
-    fflush(stdout);
-
     for (int write = 0; write < writes; write++) {
       ASSERT_TRUE(page_writer->AppendPage(1, *page).is_success());
     }
-    printf("ccc\n");
-    fflush(stdout);
-
     page_writer->Finalize();
   }
 
@@ -119,8 +110,8 @@ TEST_F(FileStorageTest, WriteThenRead) {
   // Read contents.
   std::unique_ptr<FileSeries> input_series = EnumeratedFileSeries(file_path);
   FailureOrOwned<ReadableRawStorage> readable_storage_result =
-      ReadableFileStorage<File, PathUtil>(std::move(input_series),
-                                          HeapBufferAllocator::Get());
+      ReadableFileStorage<File>(std::move(input_series),
+                                HeapBufferAllocator::Get());
   ASSERT_TRUE(readable_storage_result.is_success());
   std::unique_ptr<ReadableRawStorage>
       readable_storage(readable_storage_result.release());

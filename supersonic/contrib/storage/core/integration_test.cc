@@ -85,15 +85,22 @@ TEST_F(IntegrationTest, FullFlow) {
   std::unique_ptr<FileSeries> output_file_series =
       EnumeratedFileSeries(file_path);
   FailureOrOwned<WritableRawStorage> writable_storage_result =
-      WritableFileStorage<File, PathUtil>(std::move(output_file_series),
+      WritableFileStorage<File>(std::move(output_file_series),
                                           allocator);
   ASSERT_TRUE(writable_storage_result.is_success());
   std::unique_ptr<WritableRawStorage>
       writable_storage(writable_storage_result.release());
 
+  FailureOrOwned<SchemaPartitioner> schema_paritioner_result =
+    CreateFixedSizeSchemaParitioner(2);
+  ASSERT_TRUE(schema_paritioner_result.is_success());
+  std::unique_ptr<SchemaPartitioner>
+      schema_partitioner(schema_paritioner_result.release());
+
   FailureOrOwned<Sink> storage_sink_result =
       CreateMultiFilesStorageSink(schema_,
                                   std::move(writable_storage),
+                                  std::move(schema_partitioner),
                                   allocator);
   ASSERT_TRUE(storage_sink_result.is_success());
   std::unique_ptr<Sink> storage_sink(storage_sink_result.release());
@@ -114,7 +121,7 @@ TEST_F(IntegrationTest, FullFlow) {
   std::unique_ptr<FileSeries> input_file_series =
       EnumeratedFileSeries(file_path);
   FailureOrOwned<ReadableRawStorage> readable_storage_result =
-      ReadableFileStorage<File, PathUtil>(std::move(input_file_series),
+      ReadableFileStorage<File>(std::move(input_file_series),
                                           allocator);
   ASSERT_TRUE(readable_storage_result.is_success());
   std::unique_ptr<ReadableRawStorage>

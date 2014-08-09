@@ -168,11 +168,16 @@ class VariableLengthDeserializer : public OwningDeserializer {
         static_cast<StringPiece*>(buffer_->data());
 
     while (source_buffer < source_buffer_end) {
-      FailureOr<std::pair<const uint8_t*, StringPiece*>> deserialize_result =
-          DeserializeRow(source_buffer, dest_buffer);
-      PROPAGATE_ON_FAILURE(deserialize_result);
-      source_buffer = deserialize_result.get().first;
-      dest_buffer = deserialize_result.get().second;
+      size_t num_arrays = *reinterpret_cast<const uint32_t*>(source_buffer);
+      source_buffer += sizeof(size_t);
+
+      for (int i = 0; i < num_arrays; i++) {
+        FailureOr<std::pair<const uint8_t*, StringPiece*>> deserialize_result =
+            DeserializeRow(source_buffer, dest_buffer);
+        PROPAGATE_ON_FAILURE(deserialize_result);
+        source_buffer = deserialize_result.get().first;
+        dest_buffer = deserialize_result.get().second;
+      }
     }
 
     VariantConstPointer pointer_result(result_buffer_beginning);
@@ -183,41 +188,52 @@ class VariableLengthDeserializer : public OwningDeserializer {
  private:
   FailureOr<std::pair<const uint8_t*, StringPiece*>>
       DeserializeRow(const uint8_t* source_buffer, StringPiece* dest_buffer) {
-    const uint32_t length = *reinterpret_cast<const uint32_t*>(source_buffer);
-    fflush(stdout);
+    const uint32_t num_pieces =
+        *reinterpret_cast<const uint32_t*>(source_buffer);
+    source_buffer += sizeof(uint32_t);
+    const uint32_t buffer_size =
+        *reinterpret_cast<const uint32_t*>(source_buffer);
     source_buffer += sizeof(uint32_t);
 
-    for (uint32_t index = 0; index < length; index++, dest_buffer++) {
-      const uint32_t piece_length =
-          *reinterpret_cast<const uint32_t*>(source_buffer);
-      source_buffer += sizeof(uint32_t);
+    const uint32_t* pointers = reinterpret_cast<const uint32_t*>(
+        source_buffer + buffer_size - 2 * sizeof(uint32_t));
 
-      char* raw_piece = static_cast<char*>(arena_->AllocateBytes(piece_length));
-      if (raw_piece == nullptr) {
-        THROW(new Exception(ERROR_MEMORY_EXCEEDED,
-                            "Unable to allocate memory for deserializer."));
-      }
-      memcpy(raw_piece, source_buffer, piece_length);
-      dest_buffer->set(raw_piece, piece_length);
+    size_t pieces_contents =
+        buffer_size - num_pieces * sizeof(uint32_t);
+    char* raw = static_cast<char*>(arena_->AllocateBytes(pieces_contents));
+    if (raw == nullptr) {
+      THROW(new Exception(ERROR_MEMORY_EXCEEDED,
+                          "Unable to allocate memory for deserializer."));
+    }
+    memcpy(raw, source_buffer, pieces_contents);
 
-      source_buffer += piece_length;
+    uint32_t piece_offset = 0;
+    for (uint32_t index = 0; index < num_pieces; index++, dest_buffer++) {
+      const uint32_t piece_length = *(--pointers);
+      dest_buffer->set(raw + piece_offset, piece_length);
+      piece_offset += piece_length;
     }
 
+    source_buffer += (buffer_size - 2 * sizeof(uint32_t));
     return Success(std::make_pair(source_buffer, dest_buffer));
   }
 
   size_t CountRows(const uint8_t* buffer_it, const uint8_t* buffer_end) {
     size_t num_rows = 0;
+    const uint8_t* buffer_start = buffer_it;
 
     while (buffer_it < buffer_end) {
-      uint32_t pieces = *reinterpret_cast<const uint32_t*>(buffer_it);
-      buffer_it += sizeof(uint32_t);
-      for (uint32_t index = 0; index < pieces; index++) {
-        const uint32_t piece_length =
-            *reinterpret_cast<const uint32_t*>(buffer_it);
-        buffer_it += sizeof(uint32_t) + piece_length;
+      size_t num_arrays = *reinterpret_cast<const uint32_t*>(buffer_it);
+      buffer_it += sizeof(size_t);
+
+      for (int i = 0; i < num_arrays; i++) {
+        uint32_t pieces = *reinterpret_cast<const uint32_t*>(buffer_it);
+        buffer_it += sizeof(uint32_t);
+        uint32_t buffer_size = *reinterpret_cast<const uint32_t*>(buffer_it);
+
+        num_rows += pieces;
+        buffer_it += buffer_size - sizeof(uint32_t);
       }
-      num_rows += pieces;
     }
     return num_rows;
   }
