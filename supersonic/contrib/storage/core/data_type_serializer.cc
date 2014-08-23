@@ -113,7 +113,6 @@ class VariableLengthSerializer : public Serializer {
                           VariantConstPointer data[],
                           const size_t lengths[],
                           const size_t arrays) {
-    uint64_t arrays_count = arrays;
     PROPAGATE_ON_FAILURE(output_page
         ->AppendToByteBuffer(output_buffer_number, &arrays, sizeof(uint64_t)));
 

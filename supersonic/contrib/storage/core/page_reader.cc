@@ -110,14 +110,12 @@ class PageReaderCursor : public BasicCursor {
   // For given row, returns page on which it resides along with an offset.
   FailureOr<std::pair<uint64_t, rowcount_t>> FindPageAndOffset(rowcount_t row) {
     uint64_t page_number = 0;
-    rowcount_t page_row_count;
+    rowcount_t page_row_count = page_family_.pages(page_number).row_count();
     while (true) {
-      if (page_number >= page_family_.pages_size()) {
-        THROW(new Exception(
-            ERROR_INVALID_ARGUMENT_VALUE,
-            StringPrintf("Row %lld does not exist in family %d.",
-                         row,
-                         page_family_.family_number())));
+      if (page_number == page_family_.pages_size()) {
+        page_number = page_family_.pages_size() - 1;
+        rowcount_t offset = page_family_.pages(page_number).row_count();
+        return Success(std::make_pair(page_number, offset));
       }
       page_row_count = page_family_.pages(page_number).row_count();
 

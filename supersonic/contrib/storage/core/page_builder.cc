@@ -29,7 +29,7 @@
 
 namespace supersonic {
 
-const size_t kMaxPageSize = 1024 * 1024;  // 1MB
+const size_t kMaxPageSize = 512 * 1024;  // 512KB
 
 // Internal implementation of PageBuilder class.
 // TODO(wzoltak): What about buffers alignment?

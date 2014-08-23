@@ -91,10 +91,7 @@ class DataStorageImplementation : public DataStorage {
         contents_schema_(std::move(contents_schema)),
         allocator_(allocator) {}
 
-  ~DataStorageImplementation() {
-    // TODO(wzoltak): Not handled Failure!
-//    page_reader_->Finalize();
-  }
+  ~DataStorageImplementation() {}
 
   const StorageMetadata& Metadata() const {
     return *metadata_;
@@ -265,9 +262,10 @@ class MultiFileStorageScan : public BasicCursor {
 
   FailureOrVoid InitialShift(rowcount_t row) {
     size_t data_storage_size = CurrentDataStorageSize();
-    while (row >= data_storage_size) {
+    while (row >= data_storage_size && readable_storage_->HasNext()) {
       PROPAGATE_ON_FAILURE(NextDataStorageAndCursor());
       row -= data_storage_size;
+      data_storage_size = CurrentDataStorageSize();
     }
     FailureOrOwned<Cursor> cursor_result =
         data_storage_->CreateScanCursor(row, schema_);
@@ -300,6 +298,7 @@ class MultiFileStorageScan : public BasicCursor {
         CreateDataStorage(std::move(random_page_reader),
                           allocator_);
     PROPAGATE_ON_FAILURE(data_storage);
+    data_storage_.reset(data_storage.release());
     FailureOrOwned<Cursor> cursor_result =
         data_storage->CreateScanCursor(0, schema_);
     PROPAGATE_ON_FAILURE(cursor_result);

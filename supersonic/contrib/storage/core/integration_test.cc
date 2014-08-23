@@ -140,7 +140,7 @@ TEST_F(IntegrationTest, FullFlow) {
   columns.push_back(4);
 
 
-  const rowcount_t starting_from_row = 112300;
+  const rowcount_t starting_from_row = 109999;
   FailureOrOwned<Cursor> storage_scan_result =
       MultiFilesScan(std::move(readable_storage),
                      starting_from_row,
