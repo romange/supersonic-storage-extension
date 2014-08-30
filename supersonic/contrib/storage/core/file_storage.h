@@ -139,7 +139,8 @@ class FilePageStreamWriter : public PageStreamWriter {
 
     // Note that [] operator creates empty (default constructor) value.
     uint64_t page_number = page_index_[family].size();
-    page_index_[family].emplace_back(written_bytes_);
+    page_index_[family].emplace_back(written_bytes_,
+                                     page.PageHeader().total_size);
     written_bytes_ += page.PageHeader().total_size;
 
     written_pages_++;
@@ -165,7 +166,7 @@ class FilePageStreamWriter : public PageStreamWriter {
     // themselves + index_offset + magic integrity seal.
     uint64_t required_size = sizeof(uint32_t)
         + page_index_.size() * (sizeof(uint32_t) + sizeof(uint64_t))
-        + written_pages_ * sizeof(uint64_t) + sizeof(uint64_t)
+        + written_pages_ * (sizeof(uint64_t) * 3)
         + sizeof(uint64_t);
 
     // TODO(wzoltak): use allocator?
@@ -182,8 +183,11 @@ class FilePageStreamWriter : public PageStreamWriter {
 
       stream.WriteLittleEndian32(family);
       stream.WriteLittleEndian64(family_size);
-      for (uint64_t page_offset : it.second) {
+      for (std::pair<uint64_t, uint64_t>& page_offset_and_size : it.second) {
+        uint64_t page_offset = page_offset_and_size.first;
+        uint64_t page_size = page_offset_and_size.second;
         stream.WriteLittleEndian64(page_offset);
+        stream.WriteLittleEndian64(page_size);
       }
     }
 
@@ -196,7 +200,7 @@ class FilePageStreamWriter : public PageStreamWriter {
     return Success();
   }
 
-  std::map<uint32_t, std::vector<uint64_t>> page_index_;
+  std::map<uint32_t, std::vector<std::pair<uint64_t, uint64_t>>> page_index_;
   FileByteStreamWriter byte_stream_;
   uint64_t written_bytes_;
   uint64_t written_pages_;
@@ -277,10 +281,8 @@ class FileRandomPageReader : public RandomPageReader {
   }
 
   FailureOr<const Page*> GetPage(uint32_t family, uint64_t number) {
-    uint64_t page_offset = page_index_[family][number];
-    uint64_t page_size;
-    PROPAGATE_ON_FAILURE(
-        ReadExactly(page_offset, &page_size, sizeof(uint64_t)));
+    uint64_t page_offset = page_index_[family][number].first;
+    uint64_t page_size = page_index_[family][number].second;
     MaybeResizeBuffer(page_size);
 
     PROPAGATE_ON_FAILURE(
@@ -372,11 +374,14 @@ class FileRandomPageReader : public RandomPageReader {
       uint64_t family_size;
       stream.ReadLittleEndian64(&family_size);
 
-      std::vector<uint64_t>& pages_offsets = page_index_[family];
+      std::vector<std::pair<uint64_t, uint64_t>>& pages_offsets_and_sizes =
+          page_index_[family];
       for (int page_index = 0; page_index < family_size; page_index++) {
         uint64_t page_offset;
+        uint64_t page_size;
         stream.ReadLittleEndian64(&page_offset);
-        pages_offsets.emplace_back(page_offset);
+        stream.ReadLittleEndian64(&page_size);
+        pages_offsets_and_sizes.emplace_back(page_offset, page_size);
       }
     }
     return Success();
@@ -392,7 +397,7 @@ class FileRandomPageReader : public RandomPageReader {
     return Success();
   }
 
-  std::map<uint32_t, std::vector<uint64_t>> page_index_;
+  std::map<uint32_t, std::vector<std::pair<uint64_t, uint64_t>>> page_index_;
   File* file_;
   std::unique_ptr<Buffer> buffer_;
   BufferAllocator* allocator_;
