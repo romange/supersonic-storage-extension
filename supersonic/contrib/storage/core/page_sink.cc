@@ -34,7 +34,7 @@
 namespace supersonic {
 namespace {
 
-const uint64_t kPageSizeLimit = 100 * 1024;  // 100KB
+const uint64_t kPageSizeLimit = 512 * 1024;  // 512KB
 
 class PageSinkImplementation : public PageSink {
  public:
